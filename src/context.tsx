@@ -137,130 +137,87 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       } catch {}
 
-      // Determine if local state is just the default initialized mock data
-      const isDefaultMockData = 
-        stations.length === INITIAL_STATIONS.length &&
-        stations.every(s => INITIAL_STATIONS.some(is => is.id === s.id)) &&
-        tanks.length === INITIAL_TANKS.length &&
-        pumps.length === INITIAL_PUMPS.length;
-
-      let mergedStations = stations;
-      let mergedTanks = tanks;
-      let mergedPumps = pumps;
-      let mergedTransactions = transactions;
-      let mergedAudits = auditLogs;
-      let mergedOnboarded = localOnboardedUsers;
-      let mergedProfiles = localUserProfiles;
+      let mergedStations: FuelStation[] = [];
+      let mergedTanks: FuelTank[] = [];
+      let mergedPumps: FuelPump[] = [];
+      let mergedTransactions: SalesTransaction[] = [];
+      let mergedAudits: AuditLog[] = [];
+      let mergedOnboarded: SupabaseUserRecord[] = [];
+      let mergedProfiles: SupabaseUserProfile[] = [];
 
       const hasDbData = dbStations && dbStations.length > 0;
 
       if (hasDbData) {
-        if (isDefaultMockData) {
-          // Unidirectional pull (overwrite local state with DB state)
-          mergedStations = dbStations;
-          mergedTanks = dbTanks || [];
-          mergedPumps = dbPumps || [];
-          mergedTransactions = dbTransactions || [];
-          mergedAudits = dbAudits || [];
-          mergedOnboarded = dbOnboarded || [];
-          mergedProfiles = dbProfiles || [];
-        } else {
-          // Bidirectional merge
-          const mergeLists = <T extends { id: string }>(localList: T[], dbList: T[]): T[] => {
-            const mergedMap = new Map<string, T>();
-            dbList.forEach(item => mergedMap.set(item.id, item));
-            localList.forEach(item => mergedMap.set(item.id, item));
-            return Array.from(mergedMap.values());
-          };
-
-          const mergeStations = (localList: FuelStation[], dbList: FuelStation[]): FuelStation[] => {
-            const mergedMap = new Map<string, FuelStation>();
-            dbList.forEach(item => mergedMap.set(item.code.toLowerCase(), item));
-            localList.forEach(item => {
-              const existing = mergedMap.get(item.code.toLowerCase());
-              if (existing) {
-                mergedMap.set(item.code.toLowerCase(), {
-                  ...item,
-                  id: existing.id
-                });
-              } else {
-                mergedMap.set(item.code.toLowerCase(), item);
-              }
-            });
-            return Array.from(mergedMap.values());
-          };
-
-          const mergeOnboardedUsers = (localList: SupabaseUserRecord[], dbList: SupabaseUserRecord[]): SupabaseUserRecord[] => {
-            const mergedMap = new Map<string, SupabaseUserRecord>();
-            dbList.forEach(item => mergedMap.set(item.username.toLowerCase(), item));
-            localList.forEach(item => {
-              const existing = mergedMap.get(item.username.toLowerCase());
-              if (existing) {
-                mergedMap.set(item.username.toLowerCase(), {
-                  ...item,
-                  id: existing.id
-                });
-              } else {
-                mergedMap.set(item.username.toLowerCase(), item);
-              }
-            });
-            return Array.from(mergedMap.values());
-          };
-
-          const mergeUserProfiles = (localList: SupabaseUserProfile[], dbList: SupabaseUserProfile[]): SupabaseUserProfile[] => {
-            const mergedMap = new Map<string, SupabaseUserProfile>();
-            dbList.forEach(item => mergedMap.set(item.email.toLowerCase(), item));
-            localList.forEach(item => {
-              const existing = mergedMap.get(item.email.toLowerCase());
-              if (existing) {
-                mergedMap.set(item.email.toLowerCase(), {
-                  ...item,
-                  id: existing.id
-                });
-              } else {
-                mergedMap.set(item.email.toLowerCase(), item);
-              }
-            });
-            return Array.from(mergedMap.values());
-          };
-
-          mergedStations = mergeStations(stations, dbStations);
-          mergedTanks = mergeLists(tanks, dbTanks || []);
-          mergedPumps = mergeLists(pumps, dbPumps || []);
-          mergedTransactions = mergeLists(transactions, dbTransactions || []);
-          mergedAudits = mergeLists(auditLogs, dbAudits || []);
-          mergedOnboarded = mergeOnboardedUsers(localOnboardedUsers, dbOnboarded || []);
-          mergedProfiles = mergeUserProfiles(localUserProfiles, dbProfiles || []);
-        }
+        // Unidirectional pull (overwrite local state with DB state)
+        console.log('Database has active records. Unidirectionally pulling all data...');
+        mergedStations = dbStations;
+        mergedTanks = dbTanks || [];
+        mergedPumps = dbPumps || [];
+        mergedTransactions = dbTransactions || [];
+        mergedAudits = dbAudits || [];
+        mergedOnboarded = dbOnboarded || [];
+        mergedProfiles = dbProfiles || [];
       } else {
-        // DB is empty, push local state to seed it
-        console.log('Supabase tables are empty. Seeding database with current local state...');
-      }
+        // DB is empty. Check if we have local stations to seed.
+        if (stations.length > 0) {
+          console.log('Supabase tables are empty, but local state has data. Seeding database with current local state...');
+          mergedStations = stations;
+          mergedTanks = tanks;
+          mergedPumps = pumps;
+          mergedTransactions = transactions;
+          mergedAudits = auditLogs;
+          mergedOnboarded = localOnboardedUsers;
+          mergedProfiles = localUserProfiles;
 
-      // Perform a full bulk sync across all records
-      const syncRes = await syncAllDataBulk({
-        stations: mergedStations,
-        tanks: mergedTanks,
-        pumps: mergedPumps,
-        transactions: mergedTransactions,
-        audits: mergedAudits,
-        onboardedUsers: mergedOnboarded,
-        userProfiles: mergedProfiles
-      });
+          // Perform a full bulk sync across all records to seed the DB
+          const syncRes = await syncAllDataBulk({
+            stations: mergedStations,
+            tanks: mergedTanks,
+            pumps: mergedPumps,
+            transactions: mergedTransactions,
+            audits: mergedAudits,
+            onboardedUsers: mergedOnboarded,
+            userProfiles: mergedProfiles
+          });
 
-      if (!syncRes.success) {
-        console.warn('Supabase bulk upload warning:', syncRes.message);
+          if (!syncRes.success) {
+            console.warn('Supabase bulk seed warning:', syncRes.message);
+          }
+        } else {
+          console.log('Both database and local state are empty. No seeding required.');
+          mergedStations = [];
+          mergedTanks = [];
+          mergedPumps = [];
+          mergedTransactions = [];
+          mergedAudits = [];
+          mergedOnboarded = [];
+          mergedProfiles = dbProfiles || [];
+        }
       }
 
       // Update React state
+      setStations(mergedStations);
       if (mergedStations.length > 0) {
-        setStations(mergedStations);
         setSessionState(prev => {
           const exists = mergedStations.some(s => s.id === prev.activeStationId);
           if (!prev.activeStationId || !exists) {
             const updated = {
               ...prev,
               activeStationId: mergedStations[0].id
+            };
+            try {
+              sessionStorage.setItem('fuel_user_session', JSON.stringify(updated));
+            } catch {}
+            return updated;
+          }
+          return prev;
+        });
+      } else {
+        setSessionState(prev => {
+          if (prev.activeStationId) {
+            const updated = {
+              ...prev,
+              activeStationId: ''
             };
             try {
               sessionStorage.setItem('fuel_user_session', JSON.stringify(updated));
