@@ -70,6 +70,7 @@ export const StationsDirectory: React.FC = () => {
   const [dbConfig, setDbConfig] = useState(getSupabaseConfig());
   const [inputUrl, setInputUrl] = useState(getSupabaseConfig().isLocalOverride ? localStorage.getItem('supabase_url_override') || '' : '');
   const [inputKey, setInputKey] = useState(getSupabaseConfig().isLocalOverride ? localStorage.getItem('supabase_key_override') || '' : '');
+  const [inputServiceRoleKey, setInputServiceRoleKey] = useState(getSupabaseConfig().isLocalOverride ? localStorage.getItem('supabase_service_role_override') || '' : '');
 
   // -------------------------------------------------------------
   // Wizard (Onboarding Form) States
@@ -657,7 +658,7 @@ export const StationsDirectory: React.FC = () => {
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputUrl.trim() || !inputKey.trim()) return;
-    saveSupabaseOverrides(inputUrl, inputKey);
+    saveSupabaseOverrides(inputUrl, inputKey, inputServiceRoleKey);
     const updated = getSupabaseConfig();
     setDbConfig(updated);
     
@@ -676,6 +677,7 @@ export const StationsDirectory: React.FC = () => {
     clearSupabaseOverrides();
     setInputUrl('');
     setInputKey('');
+    setInputServiceRoleKey('');
     setDbConfig(getSupabaseConfig());
     
     setIsSyncing(true);
@@ -1752,6 +1754,17 @@ export const StationsDirectory: React.FC = () => {
                   placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                   value={inputKey}
                   onChange={(e) => setInputKey(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-350 px-3 py-2 rounded-lg font-mono text-[11px] focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 block text-[10px] uppercase font-mono">Service Role Key (Optional / Admin Auth)</label>
+                <input
+                  type="password"
+                  placeholder="Service role key for user provisioning..."
+                  value={inputServiceRoleKey}
+                  onChange={(e) => setInputServiceRoleKey(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-350 px-3 py-2 rounded-lg font-mono text-[11px] focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
                 />
               </div>

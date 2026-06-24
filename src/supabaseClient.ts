@@ -61,7 +61,7 @@ export function getSupabaseClient(): SupabaseClient {
   return activeClient;
 }
 
-export function saveSupabaseOverrides(url: string, key: string) {
+export function saveSupabaseOverrides(url: string, key: string, serviceRoleKey?: string) {
   if (!url || !key) return;
   let correctedUrl = url.trim();
   if (correctedUrl.includes('cgsmiirbaqgetnsjbugl.supabase.co')) {
@@ -69,11 +69,17 @@ export function saveSupabaseOverrides(url: string, key: string) {
   }
   localStorage.setItem('supabase_url_override', correctedUrl);
   localStorage.setItem('supabase_key_override', key.trim());
+  if (serviceRoleKey && serviceRoleKey.trim()) {
+    localStorage.setItem('supabase_service_role_override', serviceRoleKey.trim());
+  } else {
+    localStorage.removeItem('supabase_service_role_override');
+  }
 }
 
 export function clearSupabaseOverrides() {
   localStorage.removeItem('supabase_url_override');
   localStorage.removeItem('supabase_key_override');
+  localStorage.removeItem('supabase_service_role_override');
 }
 
 export interface SupabaseUserRecord {
