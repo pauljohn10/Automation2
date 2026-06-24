@@ -738,8 +738,13 @@ export async function deleteUserAccount(id: string): Promise<{ success: boolean;
   const config = getSupabaseConfig();
   if (!config.isConfigured) return { success: false, message: 'Supabase is not configured.' };
 
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  if (!isUuid) {
+    return { success: true, message: 'Mock/Sandbox user successfully removed.' };
+  }
+
   const adminClient = getSupabaseAdminClient();
-  
+
   try {
     const client = adminClient || getSupabaseClient();
     const { error: profileErr } = await client.from('user_profiles').delete().eq('id', id);
