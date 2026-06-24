@@ -75,4 +75,26 @@ USING (
   public.check_is_super_admin(auth.uid())
 );
 
+-- ============================================================================
+-- ALTERNATIVE OPTION: JWT METADATA BASED ROLE CHECK
+-- If you do not want to use database functions, you can read the role directly 
+-- from the authenticated user's JWT metadata (which has zero table lookups and 
+-- is 100% immune to infinite recursion).
+--
+-- To use this alternative, delete the policies above and run these instead:
+--
+-- CREATE POLICY "user_profiles_select" ON user_profiles FOR SELECT
+-- USING (auth.uid() = id OR (auth.jwt() -> 'user_metadata' ->> 'role') = 'SUPER_ADMIN');
+--
+-- CREATE POLICY "user_profiles_insert" ON user_profiles FOR INSERT
+-- WITH CHECK (auth.uid() = id);
+--
+-- CREATE POLICY "user_profiles_update" ON user_profiles FOR UPDATE
+-- USING (auth.uid() = id OR (auth.jwt() -> 'user_metadata' ->> 'role') = 'SUPER_ADMIN')
+-- WITH CHECK (auth.uid() = id OR (auth.jwt() -> 'user_metadata' ->> 'role') = 'SUPER_ADMIN');
+--
+-- CREATE POLICY "user_profiles_delete" ON user_profiles FOR DELETE
+-- USING ((auth.jwt() -> 'user_metadata' ->> 'role') = 'SUPER_ADMIN');
+-- ============================================================================
+
 RAISE NOTICE 'Successfully applied clean RLS policies to user_profiles.';

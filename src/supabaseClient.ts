@@ -528,7 +528,8 @@ export async function clearAllDataFromSupabase(): Promise<void> {
   const config = getSupabaseConfig();
   if (!config.isConfigured) return;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     await client.from('audit_logs').delete().neq('id', 'dummy');
     await client.from('sales_transactions').delete().neq('id', 'dummy');
     await client.from('fuel_pumps').delete().neq('id', 'dummy');
@@ -586,7 +587,8 @@ export async function fetchUserProfiles(): Promise<SupabaseUserProfile[]> {
   const config = getSupabaseConfig();
   if (!config.isConfigured) return [];
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { data, error } = await client
       .from('user_profiles')
       .select('*')

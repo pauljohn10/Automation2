@@ -7,7 +7,7 @@ import React, { useState } from 'react';
 import { useFuelSystem } from '../context';
 import { FuelStation } from '../types';
 import { ShieldCheck, MapPin, Key, User, Building, HelpCircle, Lock, Server, Sparkles, Database, Settings, Trash2, Building2 } from 'lucide-react';
-import { getSupabaseClient, getSupabaseConfig, saveSupabaseOverrides, clearSupabaseOverrides } from '../supabaseClient';
+import { getSupabaseClient, getSupabaseConfig, saveSupabaseOverrides, clearSupabaseOverrides, getSupabaseAdminClient } from '../supabaseClient';
 
 export const LoginScreen: React.FC = () => {
   const { stations, setSession, addCustomAuditLog, refreshAllFromSupabase } = useFuelSystem();
@@ -153,7 +153,9 @@ export const LoginScreen: React.FC = () => {
           const userEmail = data.user.email || cleanUser;
 
           // 2. Lookup role from user_profiles table immediately after successful auth session
-          const { data: profile, error: profileErr } = await client
+          const adminClient = getSupabaseAdminClient();
+          const dbClient = adminClient || client;
+          const { data: profile, error: profileErr } = await dbClient
             .from('user_profiles')
             .select('role')
             .eq('id', userId)
