@@ -20,7 +20,8 @@ import {
   onboardStationWithAssets,
   insertTransactionInSupabase,
   insertAuditInSupabase,
-  clearAllDataFromSupabase
+  clearAllDataFromSupabase,
+  deleteStationFromSupabase
 } from './supabaseClient';
 
 interface FuelSystemContextType {
@@ -36,6 +37,7 @@ interface FuelSystemContextType {
   // Setters/Mutations
   setSession: (session: UserSession) => void;
   addStation: (station: FuelStation, stationTanks: FuelTank[], stationPumps?: FuelPump[]) => Promise<{ success: boolean; error?: any }>;
+  deleteStation: (stationId: string) => Promise<{ success: boolean; error?: any }>;
   updateStationStatus: (stationId: string, status: 'ACTIVE' | 'MAINTENANCE' | 'INACTIVE') => void;
   updateLocalPricing: (stationId: string, grade: FuelGrade, price: number) => void;
   resetTankWater: (tankId: string) => void;
@@ -194,6 +196,30 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
   };
 
+  const deleteStation = async (stationId: string): Promise<{ success: boolean; error?: any }> => {
+    const station = stations.find(s => s.id === stationId);
+    const stationName = station ? station.name : 'Unknown Station';
+
+    // Update local state
+    setStations(prev => prev.filter(s => s.id !== stationId));
+    setTanks(prev => prev.filter(t => t.stationId !== stationId));
+    setPumps(prev => prev.filter(p => p.stationId !== stationId));
+
+    addCustomAuditLog(
+      'STATION_DELETION',
+      `Permanently deleted fuel station "${stationName}" and terminated all associated tanks, pumps, and supervisor accounts.`,
+      stationId
+    );
+
+    try {
+      await deleteStationFromSupabase(stationId);
+      return { success: true };
+    } catch (err: any) {
+      console.error('[Supabase Onboarding Master Sync] Error deleting station from database:', err);
+      return { success: false, error: err };
+    }
+  };
+
   const updateStationStatus = (stationId: string, status: 'ACTIVE' | 'MAINTENANCE' | 'INACTIVE') => {
     setStations(prev => prev.map(s => {
       if (s.id === stationId) {
@@ -349,16 +375,22 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const pump = pumps.find(p => p.id === pumpId);
     if (!pump) return { success: false, message: 'Pump setup error' };
 
-    // Find the tank supplying this fuel grade at this station
-    const supplyTankIndex = tanks.findIndex(t => t.stationId === pump.stationId && t.fuelType === grade);
-    if (supplyTankIndex === -1) {
+    // Find all tanks supplying this fuel grade at this station, sorted alphabetically
+    const candidateTanks = tanks
+      .filter(t => t.stationId === pump.stationId && t.fuelType === grade)
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
+
+    if (candidateTanks.length === 0) {
       return { success: false, message: `No active storage tank configured for ${grade} at this station.` };
     }
 
-    const supplyTank = tanks[supplyTankIndex];
-    if (supplyTank.currentLevel < volume) {
-      return { success: false, message: `Insufficient fuel stock available! Tank standard volume is currently at ${supplyTank.currentLevel.toLocaleString()} Litres.` };
+    const totalAvailable = candidateTanks.reduce((sum, t) => sum + t.currentLevel, 0);
+    if (totalAvailable < volume) {
+      return { success: false, message: `Insufficient fuel stock available! Total stock across matched tanks is only ${totalAvailable.toLocaleString()} Litres.` };
     }
+
+    // Set the first active tank with stock as the representative tank for starting metric reference
+    const supplyTank = candidateTanks.find(t => t.currentLevel > 0) || candidateTanks[0];
 
     const actualStation = stations.find(s => s.id === pump.stationId);
     const unitPrice = actualStation?.fuelPricing[grade] || 2.18;
@@ -410,15 +442,49 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         currentVolume = volume;
         clearInterval(intervalId);
 
-        // Deduct remaining fuel volume from active storage tank
-        const updatedLevel = Math.max(0, supplyTank.currentLevel - volume);
-        const updatedTank = {
-          ...supplyTank,
-          currentLevel: updatedLevel,
-          lastMeasurementTime: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
-        };
-        setTanks(prevTanks => prevTanks.map(t => t.id === supplyTank.id ? updatedTank : t));
-        upsertTankInSupabase(updatedTank);
+        // Deduct remaining fuel volume from active storage tank(s) sequentially
+        let rem = volume;
+        const updatedTanks = [...tanks];
+        const affectedTanksToSave: any[] = [];
+        const deductionLogs: string[] = [];
+
+        candidateTanks.forEach(candidate => {
+          if (rem <= 0) return;
+
+          const idxInFull = updatedTanks.findIndex(t => t.id === candidate.id);
+          if (idxInFull === -1) return;
+
+          const t = updatedTanks[idxInFull];
+          const available = t.currentLevel;
+
+          let deduct = 0;
+          if (available >= rem) {
+            deduct = rem;
+            rem = 0;
+          } else {
+            deduct = available;
+            rem -= available;
+          }
+
+          if (deduct > 0) {
+            const nextLevel = Math.max(0, t.currentLevel - deduct);
+            const updatedTank = {
+              ...t,
+              currentLevel: nextLevel,
+              lastMeasurementTime: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+            };
+            updatedTanks[idxInFull] = updatedTank;
+            affectedTanksToSave.push(updatedTank);
+            deductionLogs.push(`${deduct.toFixed(2)}L from ${t.label}`);
+          }
+        });
+
+        setTanks(updatedTanks);
+
+        // Save each affected tank update to Supabase
+        affectedTanksToSave.forEach(updatedTank => {
+          upsertTankInSupabase(updatedTank);
+        });
 
         // Transition pump status from PUMPING to COMPLETED
         const completedPumpState = {
@@ -432,7 +498,7 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         addCustomAuditLog(
           'FUEL_DISPENSE_AUTO_DEDUCTED',
-          `Dispensing completed for ${volume.toFixed(2)}L of ${grade} at ${pump.label}. Deducted from ${supplyTank.label}. Awaiting manual supervisor verification.`,
+          `Dispensing completed for ${volume.toFixed(2)}L of ${grade} at ${pump.label}. Sequentially deducted: ${deductionLogs.join(' and ')}. Awaiting manual supervisor verification.`,
           pump.stationId
         );
       } else {
@@ -465,7 +531,12 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     const timestamp = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
 
-    const supplyTank = tanks.find(t => t.stationId === pump.stationId && t.fuelType === grade);
+    // Use current active or representative tank index
+    const candidateTanks = tanks
+      .filter(t => t.stationId === pump.stationId && t.fuelType === grade)
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
+    const supplyTank = candidateTanks.find(t => t.currentLevel > 0) || candidateTanks[0];
+
     const heightBefore = supplyTank ? Math.round(((supplyTank.currentLevel + volume) / supplyTank.capacity) * 1000) : 588;
     const heightAfter = supplyTank ? Math.round((supplyTank.currentLevel / supplyTank.capacity) * 1000) : 588;
 
@@ -594,6 +665,7 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       isLoading,
       setSession,
       addStation,
+      deleteStation,
       updateStationStatus,
       updateLocalPricing,
       resetTankWater,

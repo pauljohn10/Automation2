@@ -6,11 +6,11 @@
 import React, { useState } from 'react';
 import { useFuelSystem } from '../context';
 import { FuelStation } from '../types';
-import { ShieldCheck, MapPin, Key, User, Building, HelpCircle, Lock, Server, Sparkles } from 'lucide-react';
-import { getSupabaseClient } from '../supabaseClient';
+import { ShieldCheck, MapPin, Key, User, Building, HelpCircle, Lock, Server, Sparkles, Database, Settings, Trash2, Building2 } from 'lucide-react';
+import { getSupabaseClient, getSupabaseConfig, saveSupabaseOverrides, clearSupabaseOverrides } from '../supabaseClient';
 
 export const LoginScreen: React.FC = () => {
-  const { stations, setSession, addCustomAuditLog } = useFuelSystem();
+  const { stations, setSession, addCustomAuditLog, refreshAllFromSupabase } = useFuelSystem();
   
   const [loginMode, setLoginMode] = useState<'station' | 'corporate'>('station');
   const [username, setUsername] = useState('');
@@ -18,6 +18,51 @@ export const LoginScreen: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [showHelper, setShowHelper] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
+
+  // Database configuration overrides states
+  const [showDbConfig, setShowDbConfig] = useState(false);
+  const [dbConfig, setDbConfig] = useState(getSupabaseConfig());
+  const [inputUrl, setInputUrl] = useState(getSupabaseConfig().isLocalOverride ? localStorage.getItem('supabase_url_override') || '' : '');
+  const [inputKey, setInputKey] = useState(getSupabaseConfig().isLocalOverride ? localStorage.getItem('supabase_key_override') || '' : '');
+  const [configSuccessMsg, setConfigSuccessMsg] = useState<string | null>(null);
+
+  const handleSaveConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputUrl.trim() || !inputKey.trim()) return;
+    saveSupabaseOverrides(inputUrl, inputKey);
+    const updated = getSupabaseConfig();
+    setDbConfig(updated);
+    setConfigSuccessMsg('Credentials linked! Connecting...');
+    
+    const res = await refreshAllFromSupabase();
+    if (res.success) {
+      setConfigSuccessMsg('Connected successfully!');
+    } else {
+      setConfigSuccessMsg(`Linked, but connection alert: ${res.message}`);
+    }
+    
+    setTimeout(() => {
+      setConfigSuccessMsg(null);
+      setShowDbConfig(false);
+    }, 2500);
+  };
+
+  const handleClearConfig = async () => {
+    clearSupabaseOverrides();
+    setInputUrl('');
+    setInputKey('');
+    const updated = getSupabaseConfig();
+    setDbConfig(updated);
+    setConfigSuccessMsg('Credentials cleared. Defaulting to system environment...');
+    
+    await refreshAllFromSupabase();
+    
+    setConfigSuccessMsg('Using default environment database.');
+    setTimeout(() => {
+      setConfigSuccessMsg(null);
+    }, 2000);
+  };
 
   // Submit handler supporting dual gateway entry
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -38,6 +83,55 @@ export const LoginScreen: React.FC = () => {
 
     // A. CENTRAL HQ WORKSPACE GATEWAY MODE (Supabase Auth integration)
     if (loginMode === 'corporate') {
+      const lowerUser = cleanUser.toLowerCase();
+
+      // 1. Check HQ Super Admin local bypass
+      if (lowerUser === 'admin' && cleanPass === 'password123') {
+        const defaultStationId = stations[0]?.id || 'st-01';
+        setSession({
+          role: 'SUPER_ADMIN',
+          name: 'HQ Super Admin',
+          activeStationId: defaultStationId,
+          isLoggedIn: true,
+          originalRole: 'SUPER_ADMIN',
+          isStationContext: false
+        });
+        addCustomAuditLog('SUPER_ADMIN_LOGIN', 'HQ super admin logged in from security terminal.', defaultStationId);
+        return;
+      }
+
+      // 2. Check Custom Station supervisor credentials local bypass
+      const matchedStationByCustomCreds = stations.find(
+        st => st.username && st.username.trim().toLowerCase() === lowerUser && st.password === cleanPass
+      );
+
+      if (matchedStationByCustomCreds) {
+        setSession({
+          role: 'STATION_ADMIN',
+          name: matchedStationByCustomCreds.manager || `${matchedStationByCustomCreds.name} Supervisor`,
+          activeStationId: matchedStationByCustomCreds.id,
+          isLoggedIn: true,
+          originalRole: 'STATION_ADMIN',
+          isStationContext: true
+        });
+        addCustomAuditLog(
+          'SUPERVISOR_LOGIN', 
+          `Supervisor "${matchedStationByCustomCreds.manager}" successfully authenticated via station supervisor account.`, 
+          matchedStationByCustomCreds.id
+        );
+        return;
+      }
+
+      // 3. Block station operator accounts from signing in on the Central HQ Workspace tab
+      const isOperatorUser = [
+        'noor5', 'noor2', 'noor237', 'noor56', 'noor1'
+      ].includes(lowerUser);
+
+      if (isOperatorUser) {
+        setErrorMsg('Access Denied. Station Operator accounts must sign in through the Station Operator gateway.');
+        return;
+      }
+
       setIsSubmitting(true);
       try {
         const client = getSupabaseClient();
@@ -65,8 +159,10 @@ export const LoginScreen: React.FC = () => {
             .eq('id', userId)
             .maybeSingle();
 
-          if (profile && !profileErr) {
-            const role = profile.role; // 'SUPER_ADMIN' | 'ADMIN' | 'VIEWER'
+          const resolvedRole = profile?.role || data.user.user_metadata?.role;
+
+          if (resolvedRole) {
+            const role = resolvedRole; // 'SUPER_ADMIN' | 'ADMIN' | 'VIEWER'
             const defaultStationId = stations[0]?.id || 'st-01';
 
             setSession({
@@ -74,7 +170,8 @@ export const LoginScreen: React.FC = () => {
               name: userEmail,
               activeStationId: defaultStationId,
               isLoggedIn: true,
-              originalRole: role as any
+              originalRole: role as any,
+              isStationContext: false
             });
 
             addCustomAuditLog(
@@ -98,7 +195,8 @@ export const LoginScreen: React.FC = () => {
                 name: onboardedUser.full_name || userEmail,
                 activeStationId: onboardedUser.station_id || stations[0]?.id || 'st-01',
                 isLoggedIn: true,
-                originalRole: 'STATION_ADMIN'
+                originalRole: 'STATION_ADMIN',
+                isStationContext: true
               });
 
               addCustomAuditLog(
@@ -112,15 +210,16 @@ export const LoginScreen: React.FC = () => {
               // No user profile nor onboarded_user record exists. Assign default corporate ADMIN or report problem
               const defaultStationId = stations[0]?.id || 'st-01';
               setSession({
-                role: 'STATION_ADMIN',
+                role: 'ADMIN',
                 name: userEmail,
                 activeStationId: defaultStationId,
                 isLoggedIn: true,
-                originalRole: 'STATION_ADMIN'
+                originalRole: 'ADMIN',
+                isStationContext: false
               });
               addCustomAuditLog(
                 'AUTH_FALLBACK',
-                `Redirecting user "${userEmail}" to default Station Operator dashboard (No profile record matches associated tenant UID).`,
+                `Redirecting user "${userEmail}" to default Corporate ADMIN dashboard (No profile record matches associated tenant UID).`,
                 defaultStationId
               );
               setIsSubmitting(false);
@@ -139,246 +238,436 @@ export const LoginScreen: React.FC = () => {
     // B. STANDARD LOCAL STATION OPERATOR GATEWAY MODE
     const lowerUser = cleanUser.toLowerCase();
 
-    // 1. Check HQ Super Admin (Legacy local credential bypass)
-    if (lowerUser === 'admin' && cleanPass === 'password123') {
-      const defaultStationId = stations[0]?.id || 'st-01';
-      setSession({
-        role: 'SUPER_ADMIN',
-        name: 'HQ Super Admin',
-        activeStationId: defaultStationId,
-        isLoggedIn: true,
-        originalRole: 'SUPER_ADMIN'
-      });
-      addCustomAuditLog('SUPER_ADMIN_LOGIN', 'HQ super admin logged in from security terminal.', defaultStationId);
+    // 1. Block covered corporate roles (HQ Super Admin, Admin, Supervisor, Viewer) from standard Station Operator tab
+    if (
+      lowerUser === 'admin' || 
+      lowerUser.includes('admin') || 
+      lowerUser.includes('supervisor') || 
+      lowerUser.includes('viewer')
+    ) {
+      setErrorMsg('Access Denied. Corporate HQ Accounts (HQ Admins, Super Admins, Supervisors, and Viewers) must exclusively sign in through the Central HQ Workspace gateway.');
       return;
     }
 
-    // 2. Check Custom Station supervisor credentials
-    const matchedStationByCustomCreds = stations.find(
-      st => st.username && st.username.trim().toLowerCase() === lowerUser && st.password === cleanPass
-    );
+    // 2. Check Custom Station Operator credentials
+    const matchedOperator = [
+      { username: 'noor5', password: '123', stationName: 'Huseniya', stationCode: 'huseniya' },
+      { username: 'noor2', password: 'asd', stationName: 'Matar', stationCode: 'matar' },
+      { username: 'noor237', password: '123', stationName: 'Malik Fahd', stationCode: 'matar' }, // Malik Fahd mapped to Matar as standard fallback
+      { username: 'noor56', password: '123', stationName: 'Makkah', stationCode: 'makkah' },
+      { username: 'noor1', password: '123', stationName: 'Arissa', stationCode: 'arissa' }
+    ].find(op => op.username === lowerUser && op.password === cleanPass);
 
-    if (matchedStationByCustomCreds) {
+    if (matchedOperator) {
+      const station = stations.find(s => 
+        s.name.toLowerCase().includes(matchedOperator.stationCode) ||
+        s.name.toLowerCase().includes(matchedOperator.stationName.toLowerCase()) ||
+        s.code.toLowerCase() === matchedOperator.stationCode
+      );
+
+      const targetStationId = station?.id || `st-operator-${matchedOperator.stationCode}`;
+      
       setSession({
-        role: 'STATION_ADMIN',
-        name: matchedStationByCustomCreds.manager || `${matchedStationByCustomCreds.name} Supervisor`,
-        activeStationId: matchedStationByCustomCreds.id,
+        role: 'OPERATOR',
+        name: `Operator (${matchedOperator.stationName})`,
+        activeStationId: targetStationId,
         isLoggedIn: true,
-        originalRole: 'STATION_ADMIN'
+        originalRole: 'OPERATOR',
+        isStationContext: true
       });
+
       addCustomAuditLog(
-        'SUPERVISOR_LOGIN', 
-        `Supervisor "${matchedStationByCustomCreds.manager}" successfully authenticated via station supervisor account.`, 
-        matchedStationByCustomCreds.id
+        'OPERATOR_LOGIN',
+        `Station operator successfully authenticated for ${matchedOperator.stationName} station.`,
+        targetStationId
       );
       return;
     }
 
     // No credentials matched
-    setErrorMsg('System Access Denied. The supervisor username or password entered is invalid. Please verify and try again.');
+    setErrorMsg('System Access Denied. The credentials entered are invalid. Please verify and try again.');
   };
 
   return (
-    <div className="min-h-screen w-screen flex flex-col md:flex-row bg-[#0f172a] font-sans selection:bg-[#6c5dd3] selection:text-white overflow-y-auto text-left">
-      {/* Visual background banner deck */}
-      <div className="w-full md:w-5/12 bg-linear-to-b from-[#1e1b4b] to-[#0f172a] text-white p-8 md:p-12 flex flex-col justify-between border-b md:border-b-0 md:border-r border-[#1e293b] min-h-[300px] md:min-h-0">
-        <div className="space-y-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-[#6c5dd3] flex items-center justify-center shadow-lg shadow-[#6c5dd3]/30">
-              <Server size={18} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-sm font-black uppercase tracking-wider text-slate-100">Antigravity Fuel Sys</h1>
-              <p className="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Enterprise ERP Suite</p>
-            </div>
-          </div>
+    <div className="min-h-screen w-screen flex items-center justify-center bg-[#090d16] font-sans selection:bg-[#6c5dd3] selection:text-white relative overflow-y-auto py-12 px-4">
+      {/* Decorative background grid and glowing orbs */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b0a_1px,transparent_1px),linear-gradient(to_bottom,#1e293b0a_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_40%,#000_70%,transparent_100%)] pointer-events-none" />
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-[#6c5dd3]/8 blur-[120px] pointer-events-none animate-pulse duration-5000" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-500/8 blur-[120px] pointer-events-none animate-pulse duration-5000" />
 
-          <div className="pt-8 w-full">
-            <h2 className="text-2xl font-bold tracking-tight leading-tight text-white block">
-              Multi-Station Fuel Management & Smart Dispatches
-            </h2>
-            <p className="text-xs text-slate-400 mt-2.5 leading-relaxed">
-              Unlock absolute control over fuel distribution, intelligent ATG level calibrations, and live dispenser node monitoring across all your network stations.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-3 pt-6 md:pt-0">
-          <div className="flex items-center gap-3 bg-white/5 border border-white/10 p-3 rounded-lg text-xs leading-normal font-mono text-indigo-200">
-            <ShieldCheck size={16} className="text-indigo-400 shrink-0" />
-            <span>Strict data isolation tenant security active. Cross-tenant queries are blocked.</span>
-          </div>
-
-          <div className="text-[10px] text-slate-500 font-mono flex items-center justify-between">
-            <span>SaaS Core Node: v4.2.0-STABLE</span>
-            <span>Riyadh HQ Server</span>
-          </div>
-        </div>
+      {/* Discreet Sandbox Credentials Floating Help Trigger */}
+      <div className="absolute top-4 right-4 z-40">
+        <button
+          type="button"
+          onClick={() => setShowCredentialsModal(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black uppercase bg-[#131a2c]/85 border border-[#242f4c] text-indigo-300 hover:text-white hover:bg-[#6c5dd3]/20 hover:border-[#6c5dd3]/40 transition-all cursor-pointer shadow-md select-none"
+        >
+          <HelpCircle size={14} className="text-[#6c5dd3]" />
+          <span>Sandbox Accounts</span>
+        </button>
       </div>
 
-      {/* Login Form Panel */}
-      <div className="flex-1 flex items-center justify-center p-6 md:p-12 bg-[#0b0f19]">
-        <div className="max-w-md w-full space-y-6">
-          <div className="text-left">
-            <h3 className="text-lg font-black text-white tracking-tight uppercase">
-              {loginMode === 'corporate' ? 'Central HQ Workspace' : 'Login to Supervisor Command'}
-            </h3>
-            <p className="text-xs text-slate-400 mt-1">
-              {loginMode === 'corporate' 
-                ? 'Authentication gateway for Corporate HQ Admins, Supervisors, and read-only Viewers.' 
-                : 'Enter your designated retail station supervisor or HQ administrator gateway passphrase.'}
-            </p>
+      {/* Main Login Card */}
+      <div className="max-w-md w-full bg-[#111827]/70 backdrop-blur-xl border border-slate-800 rounded-2xl p-8 shadow-2xl relative z-10 space-y-6">
+        {/* Branding & Logo */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex w-12 h-12 rounded-xl bg-linear-to-tr from-[#6c5dd3] to-[#8c7dfc] items-center justify-center text-white shadow-lg shadow-[#6c5dd3]/20 border border-white/10">
+            <Server size={22} className="animate-pulse" />
           </div>
+          <div>
+            <h1 className="text-lg font-black text-slate-100 tracking-tight uppercase leading-none">PetroLogic ERP</h1>
+            <p className="text-[10px] text-slate-400 font-mono tracking-widest uppercase mt-1">Enterprise Fuel Suite</p>
+          </div>
+        </div>
 
-          {/* Dual-Gateway Mode Selector Tab Panel */}
-          <div className="grid grid-cols-2 p-1.5 bg-[#131a2c] rounded-xl border border-[#242f4c]">
+        {/* Improved Role Selection */}
+        <div className="space-y-2.5">
+          <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block text-left">Gateway Access Point</label>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Option 1: Station Operator */}
             <button
               type="button"
               onClick={() => {
                 setLoginMode('station');
                 setErrorMsg('');
               }}
-              className={`py-2 text-xs font-black uppercase rounded-lg tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+              className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between h-24 cursor-pointer select-none ${
                 loginMode === 'station'
-                  ? 'bg-[#6c5dd3] text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'border-[#6c5dd3] bg-[#6c5dd3]/10 text-white shadow-inner shadow-[#6c5dd3]/10'
+                  : 'border-slate-800 bg-[#131c2e]/20 text-slate-400 hover:border-slate-700 hover:text-slate-200'
               }`}
             >
-              <span>Station Operator</span>
+              <div className="flex items-center justify-between w-full">
+                <MapPin size={18} className={loginMode === 'station' ? 'text-[#8c7dfc]' : 'text-slate-500'} />
+                <span className={`w-1.5 h-1.5 rounded-full ${loginMode === 'station' ? 'bg-emerald-400 animate-ping' : 'bg-transparent'}`} />
+              </div>
+              <div>
+                <span className="text-xs font-black uppercase tracking-wider block">Station Operator</span>
+                <span className="text-[8px] text-slate-500 mt-0.5 block leading-tight font-medium">Local telemetry & pumps</span>
+              </div>
             </button>
+
+            {/* Option 2: Central HQ */}
             <button
               type="button"
               onClick={() => {
                 setLoginMode('corporate');
                 setErrorMsg('');
               }}
-              className={`py-2 text-xs font-black uppercase rounded-lg tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+              className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between h-24 cursor-pointer select-none ${
                 loginMode === 'corporate'
-                  ? 'bg-[#6c5dd3] text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'border-[#6c5dd3] bg-[#6c5dd3]/10 text-white shadow-inner shadow-[#6c5dd3]/10'
+                  : 'border-slate-800 bg-[#131c2e]/20 text-slate-400 hover:border-slate-700 hover:text-slate-200'
               }`}
             >
-              <Sparkles size={11} className={loginMode === 'corporate' ? 'text-amber-300 animate-pulse' : ''} />
-              <span>Central HQ Workspace</span>
+              <div className="flex items-center justify-between w-full">
+                <Building2 size={18} className={loginMode === 'corporate' ? 'text-[#8c7dfc]' : 'text-slate-500'} />
+                <span className={`w-1.5 h-1.5 rounded-full ${loginMode === 'corporate' ? 'bg-indigo-400 animate-ping' : 'bg-transparent'}`} />
+              </div>
+              <div>
+                <span className="text-xs font-black uppercase tracking-wider block">Central HQ</span>
+                <span className="text-[8px] text-slate-500 mt-0.5 block leading-tight font-medium">Corporate ERP workspace</span>
+              </div>
             </button>
           </div>
+        </div>
 
+        {/* Login Form */}
+        <form onSubmit={handleLoginSubmit} className="space-y-4">
           {errorMsg && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3.5 text-xs text-red-400 font-bold flex items-center gap-3">
-              <Lock size={16} className="shrink-0" />
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-xs text-red-400 font-bold flex items-start gap-2.5">
+              <Lock size={15} className="shrink-0 mt-0.5 text-red-500" />
               <span>{errorMsg}</span>
             </div>
           )}
 
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-300 block">
-                {loginMode === 'corporate' ? 'Corporate Email Address' : 'Supervisor Username / Email'}
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
-                  <User size={15} />
-                </span>
-                <input
-                  type={loginMode === 'corporate' ? 'email' : 'text'}
-                  placeholder={loginMode === 'corporate' ? 'operator@centralhq.com' : 'e.g. supervisor_username'}
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-[#131a2c] text-white border border-[#242f4c] rounded-lg py-2.5 pl-9 pr-3 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
-                  required
-                  disabled={isSubmitting}
-                />
-              </div>
+          <div className="space-y-1.5 text-left">
+            <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+              {loginMode === 'corporate' ? 'Corporate Email' : 'Operator Username'}
+            </label>
+            <div className="relative">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500">
+                <User size={15} />
+              </span>
+              <input
+                type="text"
+                placeholder={loginMode === 'corporate' ? 'operator@centralhq.com' : 'e.g. noor2'}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full bg-[#131a2c]/40 text-white border border-slate-800 rounded-xl py-3 pl-10 pr-3 text-xs font-semibold placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-[#6c5dd3] focus:border-[#6c5dd3] transition-all"
+                required
+                disabled={isSubmitting}
+              />
             </div>
+          </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-300 block">
-                {loginMode === 'corporate' ? 'Security Password' : 'Security Passphrase'}
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
-                  <Key size={15} />
-                </span>
-                <input
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-[#131a2c] text-white border border-[#242f4c] rounded-lg py-2.5 pl-9 pr-3 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
-                  required
-                  disabled={isSubmitting}
-                />
-              </div>
+          <div className="space-y-1.5 text-left">
+            <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+              {loginMode === 'corporate' ? 'Corporate Password' : 'Operator Passphrase'}
+            </label>
+            <div className="relative">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-500">
+                <Key size={15} />
+              </span>
+              <input
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-[#131a2c]/40 text-white border border-slate-800 rounded-xl py-3 pl-10 pr-3 text-xs font-semibold placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-[#6c5dd3] focus:border-[#6c5dd3] transition-all"
+                required
+                disabled={isSubmitting}
+              />
             </div>
+          </div>
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white py-2.5 rounded-lg text-xs font-bold transition-all shadow-md shadow-[#6c5dd3]/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 uppercase tracking-wider"
-            >
-              {isSubmitting ? (
-                <>
-                  <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
-                  <span>Verifying Credentials...</span>
-                </>
-              ) : (
-                <span>Sign In to command console</span>
-              )}
-            </button>
-          </form>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full bg-linear-to-r from-[#6c5dd3] to-[#8c7dfc] hover:from-[#5c4eb3] hover:to-[#7c6dfc] text-white py-3 rounded-xl text-xs font-black transition-all shadow-lg shadow-[#6c5dd3]/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 uppercase tracking-widest cursor-pointer mt-2 select-none"
+          >
+            {isSubmitting ? (
+              <>
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
+                <span>Verifying Credentials...</span>
+              </>
+            ) : (
+              <span>Sign In to Terminal</span>
+            )}
+          </button>
+        </form>
 
-          {/* Quick Access Credentials helper block */}
-          {showHelper && (
-            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase font-bold text-slate-300 tracking-wider flex items-center gap-1.5">
-                  <HelpCircle size={13} className="text-indigo-400" />
-                  Available Gateway Accounts
-                </span>
-                <button 
-                  onClick={() => setShowHelper(false)} 
-                  className="text-[10px] text-slate-500 hover:text-slate-300"
+        {/* Collapsible Database Connection Overrides */}
+        <div className="pt-2 border-t border-slate-800/50">
+          <button
+            type="button"
+            onClick={() => setShowDbConfig(!showDbConfig)}
+            className="w-full flex items-center justify-between text-slate-500 hover:text-slate-350 transition-colors cursor-pointer py-1.5 px-1 rounded-lg text-[9px] uppercase font-bold tracking-wider select-none"
+          >
+            <span className="flex items-center gap-1.5">
+              <Database size={12} className="text-[#6c5dd3]" />
+              Database Server Override
+            </span>
+            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wide border ${
+              dbConfig.isLocalOverride 
+                ? 'bg-amber-500/10 text-amber-400 border-amber-500/25' 
+                : 'bg-slate-900 text-slate-500 border-slate-800'
+            }`}>
+              {dbConfig.isLocalOverride ? 'Active Override' : 'System Default'}
+            </span>
+          </button>
+
+          {showDbConfig && (
+            <form onSubmit={handleSaveConfig} className="space-y-3 pt-3 border-t border-slate-800/80 mt-2 text-xs animate-fade-in text-left">
+              <div className="flex flex-wrap items-center gap-2 pb-1">
+                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Presets:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputUrl('http://localhost:54321');
+                    setInputKey('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlbXAiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTU2MTM3MTE0MSwiZXhwIjoxOTA2OTQ3MTQxfQ.standard-anon-key');
+                  }}
+                  className="bg-slate-800/80 hover:bg-slate-700 text-indigo-300 border border-slate-700 px-2 py-0.5 rounded text-[9px] font-bold transition-all flex items-center gap-1 cursor-pointer"
                 >
-                  Hide helper
+                  <Server size={9} />
+                  Localhost Preset (54321)
                 </button>
               </div>
 
-              <div className="space-y-2 text-[11px] text-slate-400">
-                <div className="bg-[#101423] p-2 border border-indigo-950/50 rounded flex items-center justify-between">
-                  <div>
-                    <span className="font-bold text-slate-200">HQ Super Admin (Local Bypass)</span>
-                    <p className="text-[9px] text-[#805ad5] uppercase font-mono tracking-widest mt-0.5">Unified Local control</p>
-                  </div>
-                  <div className="text-right font-mono text-[10px]">
-                    <div>User: <span className="bg-slate-800 text-white px-1 rounded">admin</span></div>
-                    <div className="mt-0.5">Pass: <span className="bg-slate-800 text-emerald-300 px-1 rounded">password123</span></div>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <span className="text-[9px] uppercase font-black text-slate-500 block">Station Supervisors:</span>
-                  
-                  {stations.map(st => {
-                    const fallbackUser = `${st.code.toLowerCase()}.supervisor`;
-                    return (
-                      <div key={st.id} className="bg-[#111625] p-2 border border-slate-800 rounded flex items-center justify-between gap-2.5">
-                        <div className="truncate shrink-0" style={{ maxWidth: '40%' }}>
-                          <span className="font-bold text-slate-300 block truncate">{st.name}</span>
-                          <span className="text-[9px] text-slate-500 font-bold block mt-0.5">{st.manager || 'No Mgr'}</span>
-                        </div>
-                        <div className="text-right font-mono text-[9px] text-slate-400 truncate flex-1 leading-snug">
-                          <div>User: <span className="bg-slate-800 text-slate-200 px-1 rounded">{st.username || fallbackUser}</span></div>
-                          <div className="mt-0.5">Pass: <span className="bg-slate-800 text-emerald-400 px-1 rounded">{st.password || 'password123'}</span></div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold text-slate-400 block uppercase">Project Endpoint URL</label>
+                <input
+                  type="url"
+                  required
+                  placeholder="https://your-project.supabase.co"
+                  value={inputUrl}
+                  onChange={(e) => setInputUrl(e.target.value)}
+                  className="w-full bg-[#0b0f19] text-white border border-[#242f4c] rounded-lg py-2 px-3 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
+                />
               </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold text-slate-400 block uppercase font-mono">Anon Key / API Token</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  value={inputKey}
+                  onChange={(e) => setInputKey(e.target.value)}
+                  className="w-full bg-[#0b0f19] text-white border border-[#242f4c] rounded-lg py-2 px-3 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-2.5 gap-2 border-t border-slate-800/80">
+                <button
+                  type="button"
+                  onClick={handleClearConfig}
+                  className="text-slate-500 hover:text-red-400 flex items-center gap-1 text-[9px] font-black uppercase tracking-wider cursor-pointer select-none"
+                >
+                  <Trash2 size={11} />
+                  Reset Defaults
+                </button>
+                <button
+                  type="submit"
+                  className="bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer select-none"
+                >
+                  Connect
+                </button>
+              </div>
+            </form>
+          )}
+
+          {configSuccessMsg && (
+            <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-[10px] text-emerald-450 font-semibold flex items-center gap-2 mt-2">
+              <span>{configSuccessMsg}</span>
             </div>
           )}
         </div>
+
+        {/* Security indicators footer */}
+        <div className="text-center space-y-1 pt-4 border-t border-slate-800/40">
+          <div className="flex items-center justify-center gap-1 text-[9px] font-mono text-slate-500 uppercase tracking-widest">
+            <ShieldCheck size={11} className="text-indigo-400" />
+            <span>Encrypted TLS Gateway</span>
+          </div>
+          <p className="text-[8px] text-slate-650 leading-normal text-center">
+            This system is restricted to authorized personnel only. All access, events, and sensor calibrations are logged and monitored.
+          </p>
+        </div>
       </div>
+
+      {/* Sandbox credentials modal */}
+      {showCredentialsModal && (
+        <div className="fixed inset-0 bg-[#090d16]/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-[#111827] border border-slate-805 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl transform scale-100 transition-all duration-300">
+            <div className="bg-slate-900/50 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles size={16} className="text-amber-400 animate-pulse" />
+                <h3 className="text-xs font-black text-slate-200 uppercase tracking-wider">
+                  Developer Sandbox Accounts
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCredentialsModal(false)}
+                className="text-slate-400 hover:text-white transition-colors text-[10px] font-black uppercase bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-700 cursor-pointer select-none"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-left text-xs">
+              <p className="text-slate-450 leading-relaxed font-semibold">
+                Use these pre-configured sandbox credentials to test the dashboard. Click any card to automatically fill the login form and select the correct gateway.
+              </p>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <span className="text-[9px] font-black uppercase text-indigo-400 tracking-wider">HQ Enterprise Accounts:</span>
+                  <div 
+                    onClick={() => {
+                      setUsername('admin');
+                      setPassword('password123');
+                      setLoginMode('corporate');
+                      setShowCredentialsModal(false);
+                      setErrorMsg('');
+                    }}
+                    className="bg-[#182235] hover:bg-[#1e2b43] p-3.5 border border-indigo-950/60 rounded-xl flex items-center justify-between cursor-pointer transition-all hover:scale-[1.01]"
+                  >
+                    <div>
+                      <span className="font-bold text-slate-200 text-xs">HQ Super Admin (Local Bypass)</span>
+                      <p className="text-[9px] text-slate-500 font-mono mt-0.5">Central HQ Gateway</p>
+                    </div>
+                    <div className="text-right font-mono text-[9px] space-y-0.5 text-slate-400">
+                      <div>User: <span className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-200">admin</span></div>
+                      <div className="mt-0.5">Pass: <span className="bg-slate-900 px-1.5 py-0.5 rounded text-emerald-400">password123</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Station Operators (Local Bypass):</span>
+                    <span className="text-[8px] bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono font-bold uppercase tracking-wider">Station Operator Gateway Only</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {[
+                      { name: 'Huseniya', user: 'noor5', pass: '123' },
+                      { name: 'Matar', user: 'noor2', pass: 'asd' },
+                      { name: 'Malik Fahd', user: 'noor237', pass: '123' },
+                      { name: 'Makkah', user: 'noor56', pass: '123' },
+                      { name: 'Arissa (Najran)', user: 'noor1', pass: '123' }
+                    ].map(op => (
+                      <div
+                        key={op.user}
+                        onClick={() => {
+                          setUsername(op.user);
+                          setPassword(op.pass);
+                          setLoginMode('station');
+                          setShowCredentialsModal(false);
+                          setErrorMsg('');
+                        }}
+                        className="bg-[#131a2c] hover:bg-[#1b253f] p-3 border border-slate-800 rounded-xl space-y-1.5 cursor-pointer transition-all hover:scale-[1.01] text-left"
+                      >
+                        <span className="font-bold text-slate-350 block truncate">{op.name}</span>
+                        <div className="font-mono text-[9px] text-slate-550 space-y-0.5">
+                          <div>User: <span className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-200">{op.user}</span></div>
+                          <div className="mt-0.5">Pass: <span className="bg-slate-900 px-1.5 py-0.5 rounded text-emerald-400">{op.pass}</span></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Dynamic Station Supervisors list from Supabase */}
+                {stations.filter(st => {
+                  const uname = (st.username || '').trim().toLowerCase();
+                  return uname !== 'noor5' && uname !== 'noor2' && uname !== 'noor237' && uname !== 'noor56' && uname !== 'noor1';
+                }).length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Dynamic Station Supervisors (Supabase):</span>
+                    <div className="space-y-2">
+                      {stations
+                        .filter(st => {
+                          const uname = (st.username || '').trim().toLowerCase();
+                          return uname !== 'noor5' && uname !== 'noor2' && uname !== 'noor237' && uname !== 'noor56' && uname !== 'noor1';
+                        })
+                        .map(st => {
+                          const supervisorUser = st.username || `${st.code.toLowerCase()}.supervisor`;
+                          const supervisorPass = st.password || 'password123';
+                          return (
+                            <div
+                              key={st.id}
+                              onClick={() => {
+                                setUsername(supervisorUser);
+                                setPassword(supervisorPass);
+                                setLoginMode('corporate');
+                                setShowCredentialsModal(false);
+                                setErrorMsg('');
+                              }}
+                              className="bg-[#131a2c] hover:bg-[#1b253f] p-3 border border-slate-800 rounded-xl flex items-center justify-between cursor-pointer transition-all hover:scale-[1.01]"
+                            >
+                              <div>
+                                <span className="font-bold text-slate-300 block">{st.name}</span>
+                                <span className="text-[8px] text-slate-500 font-mono">Mgr: {st.manager || 'No Manager'}</span>
+                              </div>
+                              <div className="text-right font-mono text-[9px] text-slate-450 space-y-0.5">
+                                <div>User: <span className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-200">{supervisorUser}</span></div>
+                                <div className="mt-0.5">Pass: <span className="bg-slate-900 px-1.5 py-0.5 rounded text-emerald-400">{supervisorPass}</span></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

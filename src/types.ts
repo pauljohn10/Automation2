@@ -75,4 +75,5 @@ export interface UserSession {
   activeStationId: string; // station current selection (if multi-station)
   isLoggedIn?: boolean;
   originalRole?: 'SUPER_ADMIN' | 'ADMIN' | 'VIEWER' | 'STATION_ADMIN' | 'OPERATOR';
+  isStationContext?: boolean;
 }

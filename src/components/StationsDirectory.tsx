@@ -6,364 +6,145 @@
 import React, { useState, useEffect } from 'react';
 import { useFuelSystem } from '../context';
 import { FuelStation, FuelTank, FuelPump, FuelGrade } from '../types';
-import { Building2, Plus, X, Server, ShieldCheck, MapPin, Check, Database, Sparkles, RefreshCw, AlertCircle, ExternalLink, Settings, Key, Trash2, WifiOff, Wifi, Pencil } from 'lucide-react';
-import { getSupabaseConfig, saveSupabaseOverrides, clearSupabaseOverrides, recordOnboardedUser, fetchOnboardedUsers, SupabaseUserRecord, checkSupabaseConnectivity, getSupabaseClient } from '../supabaseClient';
+import { 
+  Building2, Plus, X, Server, ShieldCheck, MapPin, Check, 
+  Database, Sparkles, RefreshCw, AlertCircle, Settings, Key, 
+  Trash2, WifiOff, Wifi, Pencil, Eye, EyeOff, User, Layers, 
+  Droplet, Lock, Copy, CheckCircle2, ChevronRight, Fuel, Shield
+} from 'lucide-react';
+import { 
+  getSupabaseConfig, saveSupabaseOverrides, clearSupabaseOverrides, 
+  recordOnboardedUser, fetchOnboardedUsers, SupabaseUserRecord, 
+  checkSupabaseConnectivity, getSupabaseClient 
+} from '../supabaseClient';
 
 export const StationsDirectory: React.FC = () => {
-  const { stations, tanks, pumps, addStation, updateStationStatus, refreshAllFromSupabase, session, addCustomAuditLog } = useFuelSystem();
+  const { 
+    stations, tanks, pumps, addStation, deleteStation, 
+    updateStationStatus, refreshAllFromSupabase, session, addCustomAuditLog 
+  } = useFuelSystem();
 
-  // Inline editing state for Tenant Stations Network Master Registry
-  const [editingStationId, setEditingStationId] = useState<string | null>(null);
+  // Protect view: only accessible to SUPER_ADMIN, ADMIN, or VIEWER
+  const isHQUser = session.role === 'SUPER_ADMIN' || session.role === 'ADMIN' || session.role === 'VIEWER';
+  if (!isHQUser) {
+    return (
+      <div className="p-8 text-center bg-slate-50 min-h-[calc(100vh-64px)] font-sans flex flex-col items-center justify-center">
+        <Building2 size={48} className="text-rose-500 mb-3 animate-pulse" />
+        <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Access Denied</h3>
+        <p className="text-xs text-slate-500 mt-1 max-w-md leading-relaxed">
+          The requested Tenant Stations Network Master Registry is locked and reserved strictly for authorized HQ Corporate Administrators.
+        </p>
+      </div>
+    );
+  }
+
+  // Modals visibility states
+  const [showWizard, setShowWizard] = useState(false);
+  const [editingStation, setEditingStation] = useState<FuelStation | null>(null);
+  const [stationToDelete, setStationToDelete] = useState<FuelStation | null>(null);
+  const [showSyncSettings, setShowSyncSettings] = useState(false);
+  const [showSupervisorRegistry, setShowSupervisorRegistry] = useState(false);
+
+  // Password visibility states (masked by default)
+  const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
+
+  // Search and Filter states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'MAINTENANCE' | 'INACTIVE'>('ALL');
+
+  // Deletion confirmation code input
+  const [deleteConfirmCode, setDeleteConfirmCode] = useState('');
+
+  // Save/operation notifications
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [successNotif, setSuccessNotif] = useState('');
+  const [saveSuccessStationId, setSaveSuccessStationId] = useState<string | null>(null);
+
+  // Supabase states
+  const [supabaseUsers, setSupabaseUsers] = useState<Array<SupabaseUserRecord | any>>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatusText, setSyncStatusText] = useState<string | null>(null);
+  const [connectivity, setConnectivity] = useState<{ checked: boolean; reachable: boolean; message: string }>({
+    checked: false, reachable: false, message: ''
+  });
+  const [dbConfig, setDbConfig] = useState(getSupabaseConfig());
+  const [inputUrl, setInputUrl] = useState(getSupabaseConfig().isLocalOverride ? localStorage.getItem('supabase_url_override') || '' : '');
+  const [inputKey, setInputKey] = useState(getSupabaseConfig().isLocalOverride ? localStorage.getItem('supabase_key_override') || '' : '');
+
+  // -------------------------------------------------------------
+  // Wizard (Onboarding Form) States
+  // -------------------------------------------------------------
+  const [wizardTab, setWizardTab] = useState<'general' | 'assets' | 'credentials' | 'pricing'>('general');
+  const [newStationName, setNewStationName] = useState('');
+  const [newStationCode, setNewStationCode] = useState('');
+  const [newLocation, setNewLocation] = useState('');
+  const [newManager, setNewManager] = useState('');
+  const [supervisorUsername, setSupervisorUsername] = useState('');
+  const [supervisorPassword, setSupervisorPassword] = useState('');
+  const [tankCount, setTankCount] = useState(2);
+  const [dispenserCount, setDispenserCount] = useState(1);
+  const [pumpsPerDispenser, setPumpsPerDispenser] = useState(2);
+  const [dispenserNozzles, setDispenserNozzles] = useState<number[]>([2]);
+  const [tankConfigs, setTankConfigs] = useState<Array<{ label: string, fuelType: FuelGrade, capacity: number }>>([
+    { label: 'Tank 01', fuelType: 'GAS91', capacity: 45000 },
+    { label: 'Tank 02', fuelType: 'GAS95', capacity: 45000 }
+  ]);
+  const [pumpConfigs, setPumpConfigs] = useState<Array<{ dispenserNo: number, pumpNo: number, label: string, fuelType: FuelGrade }>>([
+    { dispenserNo: 1, pumpNo: 1, label: 'Dispenser 01 - Pump 1', fuelType: 'GAS91' },
+    { dispenserNo: 1, pumpNo: 2, label: 'Dispenser 01 - Pump 2', fuelType: 'GAS95' }
+  ]);
+
+  // -------------------------------------------------------------
+  // Edit Modal States
+  // -------------------------------------------------------------
+  const [editTab, setEditTab] = useState<'general' | 'assets' | 'credentials' | 'pricing'>('general');
+  const [editName, setEditName] = useState('');
+  const [editCode, setEditCode] = useState('');
   const [editManager, setEditManager] = useState('');
+  const [editLocation, setEditLocation] = useState('');
   const [editUsername, setEditUsername] = useState('');
   const [editPassword, setEditPassword] = useState('');
   const [editPriceGas91, setEditPriceGas91] = useState('');
   const [editPriceGas95, setEditPriceGas95] = useState('');
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveSuccessStationId, setSaveSuccessStationId] = useState<string | null>(null);
-
-  // Advanced configuration states inside edit mode
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [editTankConfigs, setEditTankConfigs] = useState<Array<{ id?: string; label: string; fuelType: FuelGrade; capacity: number }>>([]);
   const [editDispenserCount, setEditDispenserCount] = useState(1);
   const [editDispenserNozzles, setEditDispenserNozzles] = useState<number[]>([]);
   const [editPumpConfigs, setEditPumpConfigs] = useState<Array<{ id?: string; dispenserNo: number; pumpNo: number; label: string; fuelType: FuelGrade; status?: string }>>([]);
 
-  const handleEditTankCountChange = (newCount: number) => {
-    if (newCount < 1 || newCount > 8) return;
-    setEditTankConfigs(prev => {
-      if (newCount > prev.length) {
-        const next = [...prev];
-        for (let i = prev.length; i < newCount; i++) {
-          next.push({
-            label: `Tank ${String(i + 1).padStart(2, '0')}`,
-            fuelType: 'GAS91',
-            capacity: 45000
-          });
-        }
-        return next;
-      } else if (newCount < prev.length) {
-        return prev.slice(0, newCount);
-      }
-      return prev;
-    });
-  };
-
-  const handleEditNozzleCountChange = (dispIndex: number, newNozzles: number) => {
-    if (newNozzles < 1 || newNozzles > 4) return;
-    setEditDispenserNozzles(prev => {
-      const next = [...prev];
-      next[dispIndex] = newNozzles;
-      updateEditPumpConfigsFromNozzles(next);
-      return next;
-    });
-  };
-
-  const handleEditDispenserCountChange = (newCount: number) => {
-    if (newCount < 1 || newCount > 6) return;
-    setEditDispenserCount(newCount);
-    setEditDispenserNozzles(prev => {
-      let next = [...prev];
-      if (newCount > prev.length) {
-        for (let i = prev.length; i < newCount; i++) {
-          next.push(2);
-        }
-      } else if (newCount < prev.length) {
-        next = next.slice(0, newCount);
-      }
-      updateEditPumpConfigsFromNozzles(next);
-      return next;
-    });
-  };
-
-  const updateEditPumpConfigsFromNozzles = (nozzlesArray: number[]) => {
-    setEditPumpConfigs(prev => {
-      const g: FuelGrade[] = ['GAS91', 'GAS95', 'GAS98', 'DIESEL'];
-      const nextConfigs: Array<{ id?: string; dispenserNo: number; pumpNo: number; label: string; fuelType: FuelGrade; status?: string }> = [];
-      
-      nozzlesArray.forEach((nozzleCount, dIndex) => {
-        const d = dIndex + 1;
-        for (let p = 1; p <= nozzleCount; p++) {
-          const existing = prev.find(pc => pc.dispenserNo === d && pc.pumpNo === p);
-          if (existing) {
-            nextConfigs.push(existing);
-          } else {
-            const indexOnDispenser = p - 1;
-            const defaultFuel = g[indexOnDispenser % g.length];
-            nextConfigs.push({
-              label: `Dispenser ${String(d).padStart(2, '0')} - Pump ${p}`,
-              dispenserNo: d,
-              pumpNo: p,
-              fuelType: defaultFuel,
-              status: 'IDLE'
-            });
-          }
-        }
-      });
-      return nextConfigs;
-    });
-  };
-
-  const handleUpdateStation = async (station: FuelStation) => {
-    if (!editManager.trim() || !editUsername.trim() || !editPassword.trim() || !editPriceGas91 || !editPriceGas95) {
-      setSaveError('Please ensure all specifications are valid and not empty.');
-      return;
-    }
-
-    try {
-      setSaveError(null);
-      const updatedManager = editManager;
-      const updatedSupervisor = editUsername;
-      const updatedPassphrase = editPassword;
-      const updatedPrice91 = editPriceGas91;
-      const updatedPrice95 = editPriceGas95;
-
-      // Real schema-compliant columns to guarantee database update success
-      const updatedPricingJson = {
-        ...station.fuelPricing,
-        GAS91: parseFloat(updatedPrice91),
-        GAS95: parseFloat(updatedPrice95)
-      };
-
-      const supabase = getSupabaseClient();
-
-      // 1. Update the core station profile table row
-      const { error: stationUpdateErr } = await supabase
-        .from('stations')
-        .update({ 
-           manager: updatedManager,
-           username: updatedSupervisor,
-           password: updatedPassphrase,
-           fuelPricing: updatedPricingJson,
-           dispenserCount: editDispenserCount,
-           pumpsPerDispenser: editDispenserNozzles[0] || 2
-        })
-        .eq('id', station.id);
-
-      if (stationUpdateErr) {
-        throw new Error(`Core station update error: ${stationUpdateErr.message || String(stationUpdateErr)}`);
-      }
-
-      // 2. Update or Upsert rows inside the public.onboarded_users table
-      const { data: existingUsers, error: userFetchErr } = await supabase
-        .from('onboarded_users')
-        .select('*')
-        .eq('station_id', station.id);
-
-      const userId = (existingUsers && existingUsers.length > 0) ? existingUsers[0].id : `usr-edit-${station.id}-${Date.now().toString().slice(-4)}`;
-      const { error: userUpsertErr } = await supabase
-        .from('onboarded_users')
-        .upsert({
-          id: userId,
-          station_id: station.id,
-          station_name: station.name,
-          station_code: station.code,
-          username: updatedSupervisor,
-          password_raw: updatedPassphrase,
-          full_name: `${updatedManager} (Supervisor)`,
-          role: 'supervisor'
-        });
-
-      if (userUpsertErr) {
-        console.error('Supervisor credentials table update error:', userUpsertErr);
-      }
-
-      // 3. Dynamically insert or delete rows inside public.fuel_tanks
-      const tanksWithIds = editTankConfigs.map((t, index) => ({
-        id: t.id || `tank-edit-${index + 1}-${station.id}`,
-        stationId: station.id,
-        label: t.label || `Tank ${String(index + 1).padStart(2, '0')}`,
-        fuelType: t.fuelType,
-        capacity: parseFloat(t.capacity.toString()) || 45000,
-        currentLevel: 11000,
-        temperature: 34.0,
-        waterLevel: 0.0,
-        lastMeasurementTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-      }));
-
-      const { data: dbTanks } = await supabase
-        .from('fuel_tanks')
-        .select('id')
-        .eq('stationId', station.id);
-
-      const dbTankIds = dbTanks?.map(t => t.id) || [];
-      const liveTankIds = tanksWithIds.map(t => t.id);
-      const tIdsToDelete = dbTankIds.filter(id => !liveTankIds.includes(id));
-
-      if (tIdsToDelete.length > 0) {
-        const { error: tankDeleteErr } = await supabase.from('fuel_tanks').delete().in('id', tIdsToDelete);
-        if (tankDeleteErr) {
-          console.error('Tanks deletion error:', tankDeleteErr);
-        }
-      }
-
-      const { error: tankUpsertErr } = await supabase.from('fuel_tanks').upsert(tanksWithIds);
-      if (tankUpsertErr) {
-        console.error('Tanks upsert error:', tankUpsertErr);
-      }
-
-      // 4. Dynamically insert or delete rows inside public.fuel_pumps
-      const pumpsWithIds = editPumpConfigs.map((p, index) => ({
-        id: p.id || `pump-edit-${index + 1}-${station.id}`,
-        stationId: station.id,
-        label: p.label || `Dispenser ${String(p.dispenserNo).padStart(2, '0')} - Pump ${p.pumpNo}`,
-        status: p.status || 'IDLE',
-        fuelType: p.fuelType,
-        activeFuelGrade: p.fuelType,
-        flowRate: 40.00,
-        volumeThisSession: 0.00
-      }));
-
-      const { data: dbPumps } = await supabase
-        .from('fuel_pumps')
-        .select('id')
-        .eq('stationId', station.id);
-
-      const dbPumpIds = dbPumps?.map(p => p.id) || [];
-      const livePumpIds = pumpsWithIds.map(p => p.id);
-      const pIdsToDelete = dbPumpIds.filter(id => !livePumpIds.includes(id));
-
-      if (pIdsToDelete.length > 0) {
-        const { error: pumpDeleteErr } = await supabase.from('fuel_pumps').delete().in('id', pIdsToDelete);
-        if (pumpDeleteErr) {
-          console.error('Pumps deletion error:', pumpDeleteErr);
-        }
-      }
-
-      const { error: pumpUpsertErr } = await supabase.from('fuel_pumps').upsert(pumpsWithIds);
-      if (pumpUpsertErr) {
-        console.error('Pumps upsert error:', pumpUpsertErr);
-      }
-
-      // Explicitly trigger user requested target query just in case custom attributes are checked directly
-      try {
-        await supabase
-          .from('stations')
-          .update({ 
-             manager: updatedManager,
-             supervisor_user: updatedSupervisor,
-             passphrase: updatedPassphrase,
-             default_price_gas91: parseFloat(updatedPrice91),
-             default_price_gas95: parseFloat(updatedPrice95)
-          } as any)
-          .eq('id', station.id);
-      } catch (err) {
-        console.warn('Silent custom column fallback bypassed:', err);
-      }
-
-      setSaveSuccessStationId(station.id);
-      setEditingStationId(null);
-      setIsAdvancedOpen(false);
-      
-      // On-the-fly reload from database to avoid full page refresh
-      await refreshAllFromSupabase();
-
-      addCustomAuditLog(
-        'STATION_SPEC_UPDATE',
-        `Master registry specs and network topology updated for ${station.name}. Manager: ${updatedManager}.`,
-        station.id
-      );
-
-      setTimeout(() => setSaveSuccessStationId(null), 3500);
-    } catch (err: any) {
-      setSaveError(err.message || 'Linking database write exception.');
-    }
-  };
-
-  // Onboarding wizard panel state
-  const [showWizard, setShowWizard] = useState(false);
-  const [newStationName, setNewStationName] = useState('');
-  const [newStationCode, setNewStationCode] = useState('');
-  const [newLocation, setNewLocation] = useState('');
-  const [newManager, setNewManager] = useState('');
-  
-  // Custom specifications for Tanks & Pumps
-  const [tankCount, setTankCount] = useState(2);
-  const [dispenserCount, setDispenserCount] = useState(1);
-  const [pumpsPerDispenser, setPumpsPerDispenser] = useState(2);
-  const [dispenserNozzles, setDispenserNozzles] = useState<number[]>([2]);
-  const [supervisorUsername, setSupervisorUsername] = useState('');
-  const [supervisorPassword, setSupervisorPassword] = useState('');
-
-  // Supabase synchronization states
-  const [supabaseUsers, setSupabaseUsers] = useState<Array<SupabaseUserRecord | any>>([]);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatusText, setSyncStatusText] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  // Connection diagnostics
-  const [connectivity, setConnectivity] = useState<{ checked: boolean; reachable: boolean; message: string }>({
-    checked: false,
-    reachable: false,
-    message: ''
-  });
-
-  // Dynamic Supabase Overrides for client-side iframe sandbox
-  const [dbConfig, setDbConfig] = useState(getSupabaseConfig());
-  const [inputUrl, setInputUrl] = useState(getSupabaseConfig().isLocalOverride ? localStorage.getItem('supabase_url_override') || '' : '');
-  const [inputKey, setInputKey] = useState(getSupabaseConfig().isLocalOverride ? localStorage.getItem('supabase_key_override') || '' : '');
-  const [showConfigPanel, setShowConfigPanel] = useState(false);
-  const [configSuccessMsg, setConfigSuccessMsg] = useState<string | null>(null);
-
-  // Load onboarded users list on mount
+  // Fetch users & connection check on mount
   useEffect(() => {
-    async function loadUsersAndConnectivity() {
-      // 1. Run connectivity check
-      try {
-        const ping = await checkSupabaseConnectivity();
-        setConnectivity({
-          checked: true,
-          reachable: ping.reachable,
-          message: ping.message
-        });
-      } catch (err: any) {
-        setConnectivity({
-          checked: true,
-          reachable: false,
-          message: err.message || 'External network lookup failure.'
-        });
-      }
-
-      // 2. Fetch users with session storage fallback
-      try {
-        const data = await fetchOnboardedUsers();
-        const cachedUsersStr = sessionStorage.getItem('fuel_system_onboarded_users_fallback');
-        const fallbackUsers: SupabaseUserRecord[] = cachedUsersStr ? JSON.parse(cachedUsersStr) : [];
-        
-        // Combine state (uniquely by id)
-        const combined = [...fallbackUsers, ...data];
-        const unique = Array.from(new Map(combined.map(u => [u.id, u])).values());
-        setSupabaseUsers(unique);
-      } catch (err: any) {
-        setLoadError(err.message || 'Error occurred loading synced users');
-        const cachedUsersStr = sessionStorage.getItem('fuel_system_onboarded_users_fallback');
-        if (cachedUsersStr) {
-          setSupabaseUsers(JSON.parse(cachedUsersStr));
-        }
-      }
-    }
     loadUsersAndConnectivity();
   }, [dbConfig]);
 
-  const refreshSupabaseData = async () => {
-    setIsSyncing(true);
-    setSyncStatusText('Refreshing data from Supabase...');
+  const loadUsersAndConnectivity = async () => {
     try {
       const ping = await checkSupabaseConnectivity();
-      setConnectivity({
-        checked: true,
-        reachable: ping.reachable,
-        message: ping.message
-      });
+      setConnectivity({ checked: true, reachable: ping.reachable, message: ping.message });
+    } catch (err: any) {
+      setConnectivity({ checked: true, reachable: false, message: err.message || 'Connection test failed.' });
+    }
 
+    try {
       const data = await fetchOnboardedUsers();
       const cachedUsersStr = sessionStorage.getItem('fuel_system_onboarded_users_fallback');
       const fallbackUsers: SupabaseUserRecord[] = cachedUsersStr ? JSON.parse(cachedUsersStr) : [];
-      
       const combined = [...fallbackUsers, ...data];
       const unique = Array.from(new Map(combined.map(u => [u.id, u])).values());
       setSupabaseUsers(unique);
-      setSyncStatusText(ping.reachable ? 'Refreshed successfully!' : 'Offline cache status active.');
+    } catch (err) {
+      const cachedUsersStr = sessionStorage.getItem('fuel_system_onboarded_users_fallback');
+      if (cachedUsersStr) {
+        setSupabaseUsers(JSON.parse(cachedUsersStr));
+      }
+    }
+  };
+
+  const refreshSupabaseData = async () => {
+    setIsSyncing(true);
+    setSyncStatusText('Refreshing cloud database state...');
+    try {
+      await loadUsersAndConnectivity();
+      setSyncStatusText('Refreshed successfully.');
     } catch (err: any) {
       setSyncStatusText(`Refresh failed: ${err.message}`);
     } finally {
@@ -372,80 +153,40 @@ export const StationsDirectory: React.FC = () => {
     }
   };
 
-  const handleSaveConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputUrl.trim() || !inputKey.trim()) return;
-    saveSupabaseOverrides(inputUrl, inputKey);
-    const updated = getSupabaseConfig();
-    setDbConfig(updated);
-    setConfigSuccessMsg('Supabase credentials linked! Syncing database tables...');
-    
-    const res = await refreshAllFromSupabase();
-    if (res.success) {
-      setConfigSuccessMsg('Supabase credentials successfully linked locally and synced with db!');
-    } else {
-      setConfigSuccessMsg(`Linked, but database sync lookup alert: ${res.message}`);
-    }
-    
-    setTimeout(() => {
-      setConfigSuccessMsg(null);
-      setShowConfigPanel(false);
-    }, 3000);
+  // Toggle Password Masking
+  const togglePasswordVisibility = (stationId: string) => {
+    setShowPasswordMap(prev => ({
+      ...prev,
+      [stationId]: !prev[stationId]
+    }));
   };
 
-  const handleClearConfig = async () => {
-    clearSupabaseOverrides();
-    setInputUrl('');
-    setInputKey('');
-    const updated = getSupabaseConfig();
-    setDbConfig(updated);
-    setConfigSuccessMsg('Credentials cleared. Syncing with default system environment...');
-    
-    await refreshAllFromSupabase();
-    
-    setConfigSuccessMsg('Configuration cleared. Defaulting to system environment setup.');
-    setTimeout(() => {
-      setConfigSuccessMsg(null);
-    }, 2000);
-  };
-
-
-
-  const [tankConfigs, setTankConfigs] = useState<Array<{ label: string, fuelType: FuelGrade, capacity: number }>>([
-    { label: 'Tank 01', fuelType: 'GAS91', capacity: 45000 },
-    { label: 'Tank 02', fuelType: 'GAS95', capacity: 45000 }
-  ]);
-
-  const [pumpConfigs, setPumpConfigs] = useState<Array<{ dispenserNo: number, pumpNo: number, label: string, fuelType: FuelGrade }>>([
-    { dispenserNo: 1, pumpNo: 1, label: 'Dispenser 01 - Pump 1', fuelType: 'GAS91' },
-    { dispenserNo: 1, pumpNo: 2, label: 'Dispenser 01 - Pump 2', fuelType: 'GAS95' }
-  ]);
-
-  const updatePumpConfigsFromNozzles = (nozzlesArray: number[]) => {
-    setPumpConfigs(prev => {
-      const g: FuelGrade[] = ['GAS91', 'GAS95', 'GAS98', 'DIESEL'];
-      const nextConfigs: Array<{ dispenserNo: number, pumpNo: number, label: string, fuelType: FuelGrade }> = [];
-      
-      nozzlesArray.forEach((nozzleCount, dIndex) => {
-        const d = dIndex + 1;
-        for (let p = 1; p <= nozzleCount; p++) {
-          const existing = prev.find(pc => pc.dispenserNo === d && pc.pumpNo === p);
-          if (existing) {
-            nextConfigs.push(existing);
-          } else {
-            const indexOnDispenser = p - 1;
-            const defaultFuel = g[indexOnDispenser % g.length];
-            nextConfigs.push({
-              dispenserNo: d,
-              pumpNo: p,
-              label: `Dispenser ${String(d).padStart(2, '0')} - Pump ${p}`,
-              fuelType: defaultFuel
-            });
-          }
+  // -------------------------------------------------------------
+  // Wizard Handlers
+  // -------------------------------------------------------------
+  const handleTankCountChange = (count: number) => {
+    const safeCount = Math.max(1, Math.min(8, count));
+    setTankCount(safeCount);
+    setTankConfigs(prev => {
+      const fuels: FuelGrade[] = ['GAS91', 'GAS95', 'GAS98', 'DIESEL'];
+      const next = [...prev];
+      if (next.length < safeCount) {
+        for (let i = next.length; i < safeCount; i++) {
+          next.push({
+            label: `Tank ${String(i + 1).padStart(2, '0')}`,
+            fuelType: fuels[i % fuels.length],
+            capacity: 45000
+          });
         }
-      });
-      return nextConfigs;
+      } else if (next.length > safeCount) {
+        next.splice(safeCount);
+      }
+      return next;
     });
+  };
+
+  const updateTankConfig = (index: number, key: 'fuelType' | 'capacity', value: any) => {
+    setTankConfigs(prev => prev.map((c, i) => i === index ? { ...c, [key]: value } : c));
   };
 
   const handleDispenserCountChange = (count: number) => {
@@ -475,34 +216,30 @@ export const StationsDirectory: React.FC = () => {
     });
   };
 
-  // Creation status
-  const [successNotif, setSuccessNotif] = useState('');
-
-  const handleTankCountChange = (count: number) => {
-    const safeCount = Math.max(1, Math.min(8, count));
-    setTankCount(safeCount);
-    setTankConfigs(prev => {
-      const g: FuelGrade[] = ['GAS91', 'GAS95', 'GAS98', 'DIESEL'];
-      const nextConfigs = [...prev];
-      if (nextConfigs.length < safeCount) {
-        for (let i = nextConfigs.length; i < safeCount; i++) {
-          const numStr = String(i + 1).padStart(2, '0');
-          const defaultFuel = g[i % g.length];
-          nextConfigs.push({
-            label: `Tank ${numStr}`,
-            fuelType: defaultFuel,
-            capacity: 45000
-          });
+  const updatePumpConfigsFromNozzles = (nozzlesArray: number[]) => {
+    setPumpConfigs(prev => {
+      const fuels: FuelGrade[] = ['GAS91', 'GAS95', 'GAS98', 'DIESEL'];
+      const nextConfigs: Array<{ dispenserNo: number, pumpNo: number, label: string, fuelType: FuelGrade }> = [];
+      
+      nozzlesArray.forEach((nozzleCount, dIndex) => {
+        const d = dIndex + 1;
+        for (let p = 1; p <= nozzleCount; p++) {
+          const existing = prev.find(pc => pc.dispenserNo === d && pc.pumpNo === p);
+          if (existing) {
+            nextConfigs.push(existing);
+          } else {
+            const indexOnDispenser = p - 1;
+            nextConfigs.push({
+              dispenserNo: d,
+              pumpNo: p,
+              label: `Dispenser ${String(d).padStart(2, '0')} - Pump ${p}`,
+              fuelType: fuels[indexOnDispenser % fuels.length]
+            });
+          }
         }
-      } else if (nextConfigs.length > safeCount) {
-        nextConfigs.splice(safeCount);
-      }
+      });
       return nextConfigs;
     });
-  };
-
-  const updateTankConfig = (index: number, key: 'fuelType' | 'capacity', value: any) => {
-    setTankConfigs(prev => prev.map((c, i) => i === index ? { ...c, [key]: value } : c));
   };
 
   const handleCreateStation = (e: React.FormEvent) => {
@@ -515,7 +252,6 @@ export const StationsDirectory: React.FC = () => {
     }
 
     const newId = `st-onboard-${Date.now()}`;
-    
     const newStationObj: FuelStation = {
       id: newId,
       name: newStationName,
@@ -523,7 +259,6 @@ export const StationsDirectory: React.FC = () => {
       location: newLocation,
       manager: newManager,
       status: 'ACTIVE',
-      // default starting pricing
       fuelPricing: {
         GAS91: 2.18,
         GAS95: 2.33,
@@ -538,25 +273,22 @@ export const StationsDirectory: React.FC = () => {
 
     const timestamp = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
 
-    // Build custom tanks from user-defined configs
     const newTanksObj: FuelTank[] = tankConfigs.map((tc, index) => ({
       id: `tank-${String(index + 1).padStart(2, '0')}-${newId}`,
       stationId: newId,
       label: tc.label,
       fuelType: tc.fuelType,
       capacity: tc.capacity,
-      currentLevel: 0, // Rule 1: Onboarding Empty State Initialization (empty state)
+      currentLevel: 0, 
       temperature: 34.00,
       waterLevel: 0.00,
       lastMeasurementTime: timestamp
     }));
 
-    // Build custom pumps based on pumpConfigs
     const newPumpsObj: FuelPump[] = pumpConfigs.map(pc => {
       const dStr = String(pc.dispenserNo).padStart(2, '0');
-      const pStr = String(pc.pumpNo).padStart(2, '0');
       return {
-        id: `pump-d${dStr}-p${pStr}-${newId}`,
+        id: `pump-d${dStr}-p${pc.pumpNo}-${newId}`,
         stationId: newId,
         label: `Dispenser ${dStr} - Pump ${pc.pumpNo}`,
         status: 'IDLE',
@@ -577,55 +309,38 @@ export const StationsDirectory: React.FC = () => {
     };
 
     setIsSyncing(true);
-    setSyncStatusText('Broadcasting credentials to Supabase backend...');
 
-    // Always pre-emptively save to session storage fallback list in case Supabase has DNS issues
     try {
       const cachedUsersStr = sessionStorage.getItem('fuel_system_onboarded_users_fallback');
       const fallbackList: SupabaseUserRecord[] = cachedUsersStr ? JSON.parse(cachedUsersStr) : [];
       fallbackList.unshift(userPayload);
       sessionStorage.setItem('fuel_system_onboarded_users_fallback', JSON.stringify(fallbackList));
-    } catch (e) {
-      console.error('Session cache store error:', e);
+    } catch (err) {
+      console.error('Session cache error:', err);
     }
 
     addStation(newStationObj, newTanksObj, newPumpsObj).then((dbRes) => {
-      // Sequentially write the dependent onboarded_users record now that parent row is guaranteed to exist
       recordOnboardedUser(userPayload).then((res) => {
         setIsSyncing(false);
         if (res.success) {
-          setSuccessNotif(`SaaS Station "${newStationName}" successfully integrated. Supervisor recorded in Supabase table "onboarded_users"!`);
-          fetchOnboardedUsers().then(users => {
-            const cachedUsersStr = sessionStorage.getItem('fuel_system_onboarded_users_fallback');
-            const fallbackUsers: SupabaseUserRecord[] = cachedUsersStr ? JSON.parse(cachedUsersStr) : [];
-            const combined = [...fallbackUsers, ...users];
-            const unique = Array.from(new Map(combined.map(u => [u.id, u])).values());
-            setSupabaseUsers(unique);
-          });
+          setSuccessNotif(`Station "${newStationName}" successfully onboarded and cloud synced.`);
+          loadUsersAndConnectivity();
         } else {
-          setSuccessNotif(`SaaS Station "${newStationName}" integrated locally with offline backup! Connection Status Alert: ${res.message}`);
+          setSuccessNotif(`Station "${newStationName}" onboarded locally (Offline Mode).`);
           setSupabaseUsers(prev => {
             const combined = [userPayload, ...prev];
             return Array.from(new Map(combined.map(u => [u.id, u])).values());
           });
         }
-        setTimeout(() => setSyncStatusText(null), 8500);
       });
     }).catch((err) => {
-      console.error('Fatal issue during Station/Assets onboarding write:', err);
-      // Failover fallback trigger
-      recordOnboardedUser(userPayload).then((res) => {
+      recordOnboardedUser(userPayload).then(() => {
         setIsSyncing(false);
-        setSuccessNotif(`SaaS Station "${newStationName}" integrated locally with offline backup! Connection Status Alert: ${err.message || err}`);
-        setSupabaseUsers(prev => {
-          const combined = [userPayload, ...prev];
-          return Array.from(new Map(combined.map(u => [u.id, u])).values());
-        });
-        setTimeout(() => setSyncStatusText(null), 8500);
+        setSuccessNotif(`Station "${newStationName}" onboarded locally (Error: ${err.message || err})`);
       });
     });
 
-    // Clear wizard inputs and reset to default counts
+    // Reset Form Fields
     setNewStationName('');
     setNewStationCode('');
     setNewLocation('');
@@ -634,8 +349,6 @@ export const StationsDirectory: React.FC = () => {
     setSupervisorPassword('');
     setTankCount(2);
     setDispenserCount(1);
-    setPumpsPerDispenser(2);
-    setDispenserNozzles([2]);
     setTankConfigs([
       { label: 'Tank 01', fuelType: 'GAS91', capacity: 45000 },
       { label: 'Tank 02', fuelType: 'GAS95', capacity: 45000 }
@@ -645,594 +358,1380 @@ export const StationsDirectory: React.FC = () => {
       { dispenserNo: 1, pumpNo: 2, label: 'Dispenser 01 - Pump 2', fuelType: 'GAS95' }
     ]);
     setShowWizard(false);
-
-    setTimeout(() => setSuccessNotif(''), 6500);
+    setWizardTab('general');
+    setTimeout(() => setSuccessNotif(''), 6000);
   };
 
-  const statusColors = {
-    ACTIVE: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
-    MAINTENANCE: 'bg-amber-100 text-amber-800 border border-amber-200',
-    INACTIVE: 'bg-slate-100 text-slate-800 border border-slate-200'
+  // -------------------------------------------------------------
+  // Edit Form Handlers
+  // -------------------------------------------------------------
+  const openEditModal = (station: FuelStation) => {
+    setEditingStation(station);
+    setEditName(station.name);
+    setEditCode(station.code);
+    setEditManager(station.manager);
+    setEditLocation(station.location);
+    setEditUsername(station.username || `${station.code.toLowerCase()}.supervisor`);
+    setEditPassword(station.password || 'password123');
+    setEditPriceGas91(station.fuelPricing.GAS91.toString());
+    setEditPriceGas95(station.fuelPricing.GAS95.toString());
+    setSaveError(null);
+    setEditTab('general');
+
+    const stationTanks = tanks.filter(t => t.stationId === station.id);
+    setEditTankConfigs(stationTanks.map(t => ({
+      id: t.id,
+      label: t.label,
+      fuelType: t.fuelType,
+      capacity: t.capacity
+    })));
+
+    const stationDispenserCount = station.dispenserCount || 1;
+    setEditDispenserCount(stationDispenserCount);
+
+    const stationPumps = pumps.filter(p => p.stationId === station.id);
+    const nozzlesArray: number[] = [];
+    for (let d = 1; d <= stationDispenserCount; d++) {
+      const count = stationPumps.filter(p => {
+        const dispenserNoMatch = p.label.match(/Dispenser\s*(\d+)/i) || p.label.match(/Disp\s*(\d+)/i);
+        const dispNo = dispenserNoMatch ? parseInt(dispenserNoMatch[1]) : 1;
+        return dispNo === d;
+      }).length;
+      nozzlesArray.push(count || 2);
+    }
+    setEditDispenserNozzles(nozzlesArray);
+
+    setEditPumpConfigs(stationPumps.map((p, idx) => {
+      const dispenserNoMatch = p.label.match(/Dispenser\s*(\d+)/i) || p.label.match(/Disp\s*(\d+)/i);
+      const dispNo = dispenserNoMatch ? parseInt(dispenserNoMatch[1]) : 1;
+      const pumpNoMatch = p.label.match(/Pump\s*(\d+)/i) || p.label.match(/Nozzle\s*(\d+)/i);
+      const pumpNo = pumpNoMatch ? parseInt(pumpNoMatch[1]) : (idx % 2 + 1);
+      return {
+        id: p.id,
+        label: p.label,
+        dispenserNo: dispNo,
+        pumpNo: pumpNo,
+        fuelType: p.fuelType as FuelGrade,
+        status: p.status
+      };
+    }));
   };
+
+  const handleEditTankCountChange = (newCount: number) => {
+    if (newCount < 1 || newCount > 8) return;
+    setEditTankConfigs(prev => {
+      if (newCount > prev.length) {
+        const next = [...prev];
+        for (let i = prev.length; i < newCount; i++) {
+          next.push({
+            label: `Tank ${String(i + 1).padStart(2, '0')}`,
+            fuelType: 'GAS91',
+            capacity: 45000
+          });
+        }
+        return next;
+      } else if (newCount < prev.length) {
+        return prev.slice(0, newCount);
+      }
+      return prev;
+    });
+  };
+
+  const handleEditDispenserCountChange = (newCount: number) => {
+    if (newCount < 1 || newCount > 6) return;
+    setEditDispenserCount(newCount);
+    setEditDispenserNozzles(prev => {
+      let next = [...prev];
+      if (newCount > prev.length) {
+        for (let i = prev.length; i < newCount; i++) {
+          next.push(2);
+        }
+      } else if (newCount < prev.length) {
+        next = next.slice(0, newCount);
+      }
+      updateEditPumpConfigsFromNozzles(next);
+      return next;
+    });
+  };
+
+  const handleEditNozzleCountChange = (dispIndex: number, newNozzles: number) => {
+    if (newNozzles < 1 || newNozzles > 4) return;
+    setEditDispenserNozzles(prev => {
+      const next = [...prev];
+      next[dispIndex] = newNozzles;
+      updateEditPumpConfigsFromNozzles(next);
+      return next;
+    });
+  };
+
+  const updateEditPumpConfigsFromNozzles = (nozzlesArray: number[]) => {
+    setEditPumpConfigs(prev => {
+      const fuels: FuelGrade[] = ['GAS91', 'GAS95', 'GAS98', 'DIESEL'];
+      const nextConfigs: Array<{ id?: string; dispenserNo: number; pumpNo: number; label: string; fuelType: FuelGrade; status?: string }> = [];
+      
+      nozzlesArray.forEach((nozzleCount, dIndex) => {
+        const d = dIndex + 1;
+        for (let p = 1; p <= nozzleCount; p++) {
+          const existing = prev.find(pc => pc.dispenserNo === d && pc.pumpNo === p);
+          if (existing) {
+            nextConfigs.push(existing);
+          } else {
+            const indexOnDispenser = p - 1;
+            nextConfigs.push({
+              label: `Dispenser ${String(d).padStart(2, '0')} - Pump ${p}`,
+              dispenserNo: d,
+              pumpNo: p,
+              fuelType: fuels[indexOnDispenser % fuels.length],
+              status: 'IDLE'
+            });
+          }
+        }
+      });
+      return nextConfigs;
+    });
+  };
+
+  const handleUpdateStationSave = async () => {
+    if (!editingStation) return;
+    if (!editManager.trim() || !editUsername.trim() || !editPassword.trim() || !editPriceGas91 || !editPriceGas95) {
+      setSaveError('Please ensure all required fields are valid and not empty.');
+      return;
+    }
+
+    try {
+      setSaveError(null);
+      const updatedPricingJson = {
+        ...editingStation.fuelPricing,
+        GAS91: parseFloat(editPriceGas91),
+        GAS95: parseFloat(editPriceGas95)
+      };
+
+      const supabase = getSupabaseClient();
+
+      // 1. Update Core Station specs
+      const { error: stationUpdateErr } = await supabase
+        .from('stations')
+        .update({
+          name: editName,
+          manager: editManager,
+          location: editLocation,
+          username: editUsername,
+          password: editPassword,
+          fuelPricing: updatedPricingJson,
+          dispenserCount: editDispenserCount,
+          pumpsPerDispenser: editDispenserNozzles[0] || 2
+        })
+        .eq('id', editingStation.id);
+
+      if (stationUpdateErr) {
+        throw new Error(`Station specifications update failed: ${stationUpdateErr.message}`);
+      }
+
+      // 2. Sync credentials row
+      const { data: existingUsers } = await supabase
+        .from('onboarded_users')
+        .select('*')
+        .eq('station_id', editingStation.id);
+
+      const userId = (existingUsers && existingUsers.length > 0) ? existingUsers[0].id : `usr-edit-${editingStation.id}-${Date.now().toString().slice(-4)}`;
+      await supabase
+        .from('onboarded_users')
+        .upsert({
+          id: userId,
+          station_id: editingStation.id,
+          station_name: editName,
+          station_code: editCode.toUpperCase(),
+          username: editUsername,
+          password_raw: editPassword,
+          full_name: `${editManager} (Supervisor)`,
+          role: 'supervisor'
+        });
+
+      // 3. Sync Tanks (inserts/deletes)
+      const tanksWithIds = editTankConfigs.map((t, index) => ({
+        id: t.id || `tank-edit-${index + 1}-${editingStation.id}`,
+        stationId: editingStation.id,
+        label: t.label || `Tank ${String(index + 1).padStart(2, '0')}`,
+        fuelType: t.fuelType,
+        capacity: parseFloat(t.capacity.toString()) || 45050,
+        currentLevel: 11000,
+        temperature: 34.0,
+        waterLevel: 0.0,
+        lastMeasurementTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      }));
+
+      const { data: dbTanks } = await supabase.from('fuel_tanks').select('id').eq('stationId', editingStation.id);
+      const dbTankIds = dbTanks?.map(t => t.id) || [];
+      const liveTankIds = tanksWithIds.map(t => t.id);
+      const tIdsToDelete = dbTankIds.filter(id => !liveTankIds.includes(id));
+
+      if (tIdsToDelete.length > 0) {
+        await supabase.from('fuel_tanks').delete().in('id', tIdsToDelete);
+      }
+      await supabase.from('fuel_tanks').upsert(tanksWithIds);
+
+      // 4. Sync Pumps (inserts/deletes)
+      const pumpsWithIds = editPumpConfigs.map((p, index) => ({
+        id: p.id || `pump-edit-${index + 1}-${editingStation.id}`,
+        stationId: editingStation.id,
+        label: p.label || `Dispenser ${String(p.dispenserNo).padStart(2, '0')} - Pump ${p.pumpNo}`,
+        status: p.status || 'IDLE',
+        fuelType: p.fuelType,
+        activeFuelGrade: p.fuelType,
+        flowRate: 40.00,
+        volumeThisSession: 0.00
+      }));
+
+      const { data: dbPumps } = await supabase.from('fuel_pumps').select('id').eq('stationId', editingStation.id);
+      const dbPumpIds = dbPumps?.map(p => p.id) || [];
+      const livePumpIds = pumpsWithIds.map(p => p.id);
+      const pIdsToDelete = dbPumpIds.filter(id => !livePumpIds.includes(id));
+
+      if (pIdsToDelete.length > 0) {
+        await supabase.from('fuel_pumps').delete().in('id', pIdsToDelete);
+      }
+      await supabase.from('fuel_pumps').upsert(pumpsWithIds);
+
+      // Custom column fallbacks
+      try {
+        await supabase
+          .from('stations')
+          .update({
+            manager: editManager,
+            supervisor_user: editUsername,
+            passphrase: editPassword,
+            default_price_gas91: parseFloat(editPriceGas91),
+            default_price_gas95: parseFloat(editPriceGas95)
+          } as any)
+          .eq('id', editingStation.id);
+      } catch (err) {
+        console.warn('Fallback settings warning: ', err);
+      }
+
+      setSaveSuccessStationId(editingStation.id);
+      setEditingStation(null);
+      await refreshAllFromSupabase();
+
+      addCustomAuditLog(
+        'STATION_SPEC_UPDATE',
+        `Updated operational specs for station "${editName}" (${editCode.toUpperCase()}).`,
+        editingStation.id
+      );
+
+      setTimeout(() => setSaveSuccessStationId(null), 3500);
+    } catch (err: any) {
+      setSaveError(err.message || 'Failed saving updates.');
+    }
+  };
+
+  // -------------------------------------------------------------
+  // Deletion Handler
+  // -------------------------------------------------------------
+  const handleDeleteStationTrigger = async () => {
+    if (!stationToDelete) return;
+    if (deleteConfirmCode.toUpperCase() !== stationToDelete.code.toUpperCase()) {
+      alert('Verification code prefix mismatch. Re-enter exact station code.');
+      return;
+    }
+
+    try {
+      const stationName = stationToDelete.name;
+      const res = await deleteStation(stationToDelete.id);
+      if (res.success) {
+        setSuccessNotif(`Station "${stationName}" and child database assets permanently deleted.`);
+        setStationToDelete(null);
+        setDeleteConfirmCode('');
+        await refreshAllFromSupabase();
+        setTimeout(() => setSuccessNotif(''), 6000);
+      } else {
+        alert(`Deletion Error: ${res.error?.message || 'Sync failed.'}`);
+      }
+    } catch (err: any) {
+      alert(`Fatal: ${err.message || err}`);
+    }
+  };
+
+  // -------------------------------------------------------------
+  // DB Sync Overrides Form Handler
+  // -------------------------------------------------------------
+  const handleSaveConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputUrl.trim() || !inputKey.trim()) return;
+    saveSupabaseOverrides(inputUrl, inputKey);
+    const updated = getSupabaseConfig();
+    setDbConfig(updated);
+    
+    setIsSyncing(true);
+    const res = await refreshAllFromSupabase();
+    setIsSyncing(false);
+    if (res.success) {
+      alert('Live Supabase connectivity linked and synced.');
+      setShowSyncSettings(false);
+    } else {
+      alert(`Linked credentials but sync check reported error: ${res.message}`);
+    }
+  };
+
+  const handleClearConfig = async () => {
+    clearSupabaseOverrides();
+    setInputUrl('');
+    setInputKey('');
+    setDbConfig(getSupabaseConfig());
+    
+    setIsSyncing(true);
+    await refreshAllFromSupabase();
+    setIsSyncing(false);
+    alert('Overrides cleared. Defaulting to system environment values.');
+    setShowSyncSettings(false);
+  };
+
+  // Filter stations based on search queries
+  const filteredStations = stations.filter(station => {
+    const matchesSearch = 
+      station.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      station.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      station.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      station.manager.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesStatus = statusFilter === 'ALL' || station.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const statusColors: Record<string, string> = {
+    ACTIVE: 'bg-emerald-50 text-emerald-700 border border-emerald-250',
+    MAINTENANCE: 'bg-amber-50 text-amber-700 border border-amber-250',
+    INACTIVE: 'bg-slate-100 text-slate-700 border border-slate-200'
+  };
+
+  const isSuperAdmin = session.role === 'SUPER_ADMIN';
 
   return (
     <div className="p-6 space-y-6 bg-slate-50 min-h-[calc(100vh-64px)] font-sans text-left">
-      {/* Header and buttons */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200">
-        <div>
+      {/* Top Banner / Actions Control */}
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-2xs">
+        <div className="space-y-1">
           <h3 className="text-sm font-black text-slate-800 tracking-tight uppercase flex items-center gap-2">
             <Building2 size={18} className="text-[#6c5dd3]" />
-            Tenant Stations Network Master Registry
+            Retail Stations Master Registry
           </h3>
-          <p className="text-xs text-slate-500 mt-1">
-            Configure multi-tenant data structures, operational clearances, and configure regional managers.
+          <p className="text-xs text-slate-500 leading-normal">
+            Configure retail network tenants, review inventory storage capacities, map pumps, and manage localized supervisor login keys.
           </p>
         </div>
-        <button
-          onClick={() => {
-            if (session.role === 'VIEWER') {
-              alert('Access Denied: Read-only VIEWER profile cannot onboard new retail tenants.');
-              return;
-            }
-            setShowWizard(true);
-          }}
-          disabled={session.role === 'VIEWER'}
-          className="bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white px-3.5 py-2 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-2 w-fit disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Plus size={14} />
-          Onboard New Retail Tenant
-        </button>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Cloud Sync Status Indicator */}
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all ${
+            connectivity.reachable 
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+              : 'bg-amber-50 text-amber-800 border-amber-200 animate-pulse'
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${connectivity.reachable ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            <span>{connectivity.reachable ? 'Cloud Sync Online' : 'Local Sandbox Mode'}</span>
+          </div>
+
+          <button
+            onClick={() => setShowSupervisorRegistry(true)}
+            className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-black uppercase transition-colors"
+          >
+            <Shield size={12} className="text-slate-500" />
+            <span>Supervisors List</span>
+          </button>
+
+          {isSuperAdmin && (
+            <button
+              onClick={() => setShowSyncSettings(true)}
+              className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-150 text-indigo-700 px-3 py-1.5 rounded-lg text-[11px] font-black uppercase transition-colors"
+            >
+              <Settings size={12} />
+              <span>DB Connection</span>
+            </button>
+          )}
+
+          <button
+            onClick={refreshSupabaseData}
+            disabled={isSyncing}
+            className="flex items-center gap-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-750 p-2 rounded-lg transition-colors"
+            title="Refresh Directory Data"
+          >
+            <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+          </button>
+
+          {isSuperAdmin ? (
+            <button
+              onClick={() => setShowWizard(true)}
+              className="bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white px-3.5 py-2 rounded-lg text-[11px] font-black transition-all shadow-xs flex items-center gap-2 uppercase"
+            >
+              <Plus size={14} />
+              Onboard Station
+            </button>
+          ) : (
+            <div className="text-[10px] text-slate-400 bg-slate-100 border border-slate-200 px-3 py-2 rounded-lg font-bold select-none cursor-not-allowed">
+              Onboarding Locked (Super Admin Only)
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* Operation Status Notifications */}
       {successNotif && (
-        <div className="bg-emerald-50 border border-emerald-250 rounded-xl p-4 text-xs text-emerald-800 font-bold flex items-center gap-3">
-          <ShieldCheck className="text-emerald-600 shrink-0" size={18} />
+        <div className="bg-emerald-50 border border-emerald-250 rounded-xl p-4 text-xs text-emerald-800 font-bold flex items-center gap-3 animate-fade-in shadow-2xs">
+          <ShieldCheck className="text-emerald-600 shrink-0 animate-bounce" size={18} />
           <span>{successNotif}</span>
         </div>
       )}
 
-      {/* Directory database list */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {stations.map((station) => {
-          const associatedTanks = tanks.filter(t => t.stationId === station.id);
-          
-          return (
-            <div key={station.id} className="bg-white rounded-xl border border-[#e2e8f1] shadow-2xs p-5 flex flex-col justify-between space-y-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="text-sm font-black text-slate-800 tracking-tight">{station.name}</h4>
-                  <span className="inline-block text-[10px] font-mono font-bold text-slate-400 mt-1 uppercase">CODE: {station.code}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {/* Edit Station pencil button - only available for non-VIEWER roles */}
-                  {session.role !== 'VIEWER' && editingStationId !== station.id && (
-                    <button
-                      onClick={() => {
-                        setEditingStationId(station.id);
-                        setEditManager(station.manager);
-                        setEditUsername(station.username || `${station.code.toLowerCase()}.supervisor`);
-                        setEditPassword(station.password || 'password123');
-                        setEditPriceGas91(station.fuelPricing.GAS91.toString());
-                        setEditPriceGas95(station.fuelPricing.GAS95.toString());
-                        setSaveError(null);
-                        setSaveSuccessStationId(null);
-                        setIsAdvancedOpen(false);
+      {syncStatusText && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 text-xs text-indigo-800 font-bold flex items-center gap-2 animate-pulse shadow-2xs">
+          <Sparkles className="text-[#6c5dd3]" size={16} />
+          <span>{syncStatusText}</span>
+        </div>
+      )}
 
-                        // Fetch active associated tanks & pumps
-                        const stationTanks = tanks.filter(t => t.stationId === station.id);
-                        setEditTankConfigs(stationTanks.map(t => ({
-                          id: t.id,
-                          label: t.label,
-                          fuelType: t.fuelType,
-                          capacity: t.capacity
-                        })));
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+        <div className="flex-1 max-w-md relative">
+          <input
+            type="text"
+            placeholder="Search stations by name, code, manager, or location..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-250 rounded-lg py-2 pl-3 pr-8 text-xs text-slate-800 placeholder-slate-405 font-medium focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
+          />
+          {searchQuery && (
+            <button 
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
 
-                        const stationDispenserCount = station.dispenserCount || 1;
-                        setEditDispenserCount(stationDispenserCount);
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-slate-400 font-extrabold uppercase shrink-0">Filter Status:</span>
+          <div className="flex bg-slate-50 border border-slate-200 rounded-lg p-1">
+            {(['ALL', 'ACTIVE', 'MAINTENANCE', 'INACTIVE'] as const).map(option => (
+              <button
+                key={option}
+                onClick={() => setStatusFilter(option)}
+                className={`px-3 py-1 rounded-md text-[10px] font-black uppercase transition-all ${
+                  statusFilter === option 
+                    ? 'bg-white text-slate-800 shadow-3xs font-extrabold' 
+                    : 'text-slate-400 hover:text-slate-700'
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
-                        const stationPumps = pumps.filter(p => p.stationId === station.id);
-                        const nozzlesArray: number[] = [];
-                        for (let d = 1; d <= stationDispenserCount; d++) {
-                          const count = stationPumps.filter(p => {
-                            const dispenserNoMatch = p.label.match(/Dispenser\s*(\d+)/i) || p.label.match(/Disp\s*(\d+)/i);
-                            const dispNo = dispenserNoMatch ? parseInt(dispenserNoMatch[1]) : 1;
-                            return dispNo === d;
-                          }).length;
-                          nozzlesArray.push(count || 2);
-                        }
-                        setEditDispenserNozzles(nozzlesArray);
+      {/* Directory Grid */}
+      {filteredStations.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400 font-semibold shadow-2xs flex flex-col items-center justify-center space-y-2">
+          <Building2 size={36} className="text-slate-300" />
+          <p className="text-xs">No station matches your active search queries or status filter.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredStations.map((station) => {
+            const associatedTanks = tanks.filter(t => t.stationId === station.id);
+            const totalCapacity = associatedTanks.reduce((sum, t) => sum + t.capacity, 0);
+            const stationPumps = pumps.filter(p => p.stationId === station.id);
+            const isPasswordVisible = showPasswordMap[station.id] || false;
 
-                        setEditPumpConfigs(stationPumps.map((p, idx) => {
-                          const dispenserNoMatch = p.label.match(/Dispenser\s*(\d+)/i) || p.label.match(/Disp\s*(\d+)/i);
-                          const dispNo = dispenserNoMatch ? parseInt(dispenserNoMatch[1]) : 1;
-                          const pumpNoMatch = p.label.match(/Pump\s*(\d+)/i) || p.label.match(/Nozzle\s*(\d+)/i);
-                          const pumpNo = pumpNoMatch ? parseInt(pumpNoMatch[1]) : (idx % 2 + 1);
-                          return {
-                            id: p.id,
-                            label: p.label,
-                            dispenserNo: dispNo,
-                            pumpNo: pumpNo,
-                            fuelType: p.fuelType as FuelGrade,
-                            status: p.status
-                          };
-                        }));
-                      }}
-                      className="p-1 text-slate-500 hover:text-[#6c5dd3] hover:bg-slate-100 rounded transition-all"
-                      title="Edit Station Registry Specs"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                  )}
-                  <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded ${statusColors[station.status]}`}>
+            return (
+              <div 
+                key={station.id} 
+                className="bg-white rounded-xl border border-slate-200 shadow-2xs p-5 flex flex-col justify-between space-y-4 hover:shadow-xs transition-shadow relative overflow-hidden"
+              >
+                {/* Save status notification overlay */}
+                {saveSuccessStationId === station.id && (
+                  <div className="absolute inset-0 bg-emerald-500/10 backdrop-blur-2xs flex items-center justify-center p-4 z-10 transition-opacity animate-fade-in">
+                    <div className="bg-white border border-emerald-200 rounded-lg p-3 text-xs text-emerald-800 font-bold shadow-md flex items-center gap-1.5">
+                      <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+                      <span>Specifications saved!</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Card Header */}
+                <div className="flex justify-between items-start gap-2">
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-black uppercase text-[#6c5dd3] tracking-widest block">Station Tenant</span>
+                    <h4 className="text-sm font-black text-slate-800 tracking-tight leading-tight">{station.name}</h4>
+                    <span className="inline-block text-[10px] font-mono font-black bg-slate-50 border border-slate-200 text-slate-500 px-1.5 py-0.5 rounded uppercase mt-1">
+                      CODE: {station.code}
+                    </span>
+                  </div>
+
+                  <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded-full ${statusColors[station.status] || 'bg-slate-100 text-slate-800'}`}>
                     {station.status}
                   </span>
                 </div>
-              </div>
 
-              {/* Specs */}
-              {editingStationId === station.id ? (
-                <div className="space-y-3 text-xs font-mono text-[#4a5568] bg-[#f8fafc] border border-slate-150 rounded-lg p-3">
-                  {saveError && (
-                    <div className="text-[10px] text-rose-600 bg-rose-50 p-1.5 rounded border border-rose-100 font-bold mb-2">
-                      {saveError}
-                    </div>
-                  )}
-                  
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Manager Name:</span>
-                    <input
-                      type="text"
-                      className="text-xs font-sans font-medium text-slate-700 bg-white border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
-                      value={editManager}
-                      onChange={(e) => setEditManager(e.target.value)}
-                    />
+                {/* Card Content Grid */}
+                <div className="grid grid-cols-1 gap-2 pt-2 border-t border-slate-100 text-xs font-semibold text-slate-500">
+                  <div className="flex items-center gap-2">
+                    <MapPin size={14} className="text-slate-400 shrink-0" />
+                    <span className="text-slate-700 truncate" title={station.location}>{station.location}</span>
                   </div>
-
-                  <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                    <span className="text-[10px] text-slate-450 font-bold uppercase">Connected Tanks:</span>
-                    <span className="font-bold text-indigo-700">{associatedTanks.length} Reservoir lines</span>
-                  </div>
-
-                  <div className="flex justify-between items-center py-1 border-b border-slate-100 text-[#805ad5]">
-                    <span className="text-[10px] uppercase font-bold">Equipment Specs:</span>
-                    <span className="font-bold">
-                      {station.dispenserCount || 1} Disp. ({(pumps.filter(p => p.stationId === station.id)).length} Nozzles)
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col gap-1 mt-1.5">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase text-left">Login Supervisor Username:</span>
-                    <input
-                      type="text"
-                      className="text-xs font-sans font-medium text-slate-700 bg-white border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
-                      value={editUsername}
-                      onChange={(e) => setEditUsername(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1 mt-1.5">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase text-left">Security Passphrase:</span>
-                    <input
-                      type="text"
-                      className="text-xs font-mono font-medium text-emerald-700 bg-white border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
-                      value={editPassword}
-                      onChange={(e) => setEditPassword(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1 mt-1.5">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase text-left">Default Price GAS91 (SAR):</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="text-xs font-sans font-medium text-slate-700 bg-white border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
-                      value={editPriceGas91}
-                      onChange={(e) => setEditPriceGas91(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1 mt-1.5">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase text-left">Default Price GAS95 (SAR):</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="text-xs font-sans font-medium text-slate-700 bg-white border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
-                      value={editPriceGas95}
-                      onChange={(e) => setEditPriceGas95(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Advanced Configuration Overrides Trigger Link */}
-                  <div className="pt-2 border-t border-slate-150 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
-                      className="text-[10px] font-black tracking-tight text-[#6c5dd3] hover:text-[#5c4eb3] hover:underline flex items-center justify-between w-full uppercase"
-                    >
-                      <span>⚙️ Advanced Hardware & Credentials Configuration</span>
-                      <span>{isAdvancedOpen ? '▲ Hide' : '▼ Expand'}</span>
-                    </button>
-                  </div>
-
-                  {isAdvancedOpen && (
-                    <div className="space-y-3 pt-3 border-t border-slate-205 mt-2 animate-fade-in text-left">
-                      {/* Reservoir Tanks section */}
-                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] uppercase font-black text-slate-500">Reservoir Tanks</span>
-                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1">
-                            <button
-                              type="button"
-                              onClick={() => handleEditTankCountChange(editTankConfigs.length - 1)}
-                              className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
-                              disabled={editTankConfigs.length <= 1}
-                            >
-                              -
-                            </button>
-                            <span className="text-[10px] font-bold text-slate-800 font-mono w-4 text-center">{editTankConfigs.length}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleEditTankCountChange(editTankConfigs.length + 1)}
-                              className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
-                              disabled={editTankConfigs.length >= 8}
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* List of active tanks */}
-                        <div className="space-y-1.5 max-h-28 overflow-y-auto pr-0.5">
-                          {editTankConfigs.map((tc, tIdx) => (
-                            <div key={tIdx} className="flex items-center gap-1.5 bg-white p-1.5 rounded border border-slate-150 justify-between">
-                              <span className="font-bold text-slate-600 text-[10px] truncate max-w-[60px]">{tc.label}</span>
-                              <div className="flex items-center gap-1">
-                                <select
-                                  value={tc.fuelType}
-                                  onChange={(e) => {
-                                    const val = e.target.value as FuelGrade;
-                                    setEditTankConfigs(prev => prev.map((t, i) => i === tIdx ? { ...t, fuelType: val } : t));
-                                  }}
-                                  className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-700 focus:outline-none"
-                                >
-                                  <option value="GAS91">GAS91</option>
-                                  <option value="GAS95">GAS95</option>
-                                  <option value="GAS98">GAS98</option>
-                                  <option value="DIESEL">DIESEL</option>
-                                </select>
-                                <input
-                                  type="number"
-                                  min="5000"
-                                  max="120000"
-                                  step="5000"
-                                  value={tc.capacity}
-                                  onChange={(e) => {
-                                    const val = Math.max(0, parseInt(e.target.value) || 0);
-                                    setEditTankConfigs(prev => prev.map((t, i) => i === tIdx ? { ...t, capacity: val } : t));
-                                  }}
-                                  className="w-12 bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-800 text-right focus:outline-none"
-                                />
-                                <span className="text-[8px] text-slate-400 font-sans">L</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Number of Dispensers section */}
-                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] uppercase font-black text-slate-500">Number of Dispensers</span>
-                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1">
-                            <button
-                              type="button"
-                              onClick={() => handleEditDispenserCountChange(editDispenserCount - 1)}
-                              className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
-                              disabled={editDispenserCount <= 1}
-                            >
-                              -
-                            </button>
-                            <span className="text-[10px] font-bold text-slate-800 font-mono w-4 text-center">{editDispenserCount}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleEditDispenserCountChange(editDispenserCount + 1)}
-                              className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
-                              disabled={editDispenserCount >= 6}
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Configure Dispenser Nozzles selector loops */}
-                        <div className="space-y-1.5 max-h-24 overflow-y-auto pr-0.5">
-                          {editDispenserNozzles.map((nozzles, dispIdx) => (
-                            <div key={dispIdx} className="flex items-center justify-between bg-white p-1.5 rounded border border-slate-150">
-                              <span className="font-bold text-slate-600 text-[10px]">Dispenser {String(dispIdx + 1).padStart(2, '0')}</span>
-                              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded px-1 py-0.5">
-                                <span className="text-[9px] text-slate-400 font-black">Nozzles:</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleEditNozzleCountChange(dispIdx, nozzles - 1)}
-                                  className="w-4 h-4 font-black text-slate-550 hover:bg-slate-200 rounded flex items-center justify-center text-[10px]"
-                                  disabled={nozzles <= 1}
-                                >
-                                  -
-                                </button>
-                                <span className="text-[9px] font-mono font-bold text-slate-750 w-3 text-center">{nozzles}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleEditNozzleCountChange(dispIdx, nozzles + 1)}
-                                  className="w-4 h-4 font-black text-slate-550 hover:bg-slate-200 rounded flex items-center justify-center text-[10px]"
-                                  disabled={nozzles >= 4}
-                                >
-                                  +
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Configure Nozzles assignment loop */}
-                      <div className="bg-amber-50/50 border border-amber-200 rounded-lg p-2.5 space-y-2">
-                        <span className="text-[10px] uppercase font-black text-amber-805 block">Configure Dispenser Nozzles (Fuel Types)</span>
-                        <div className="space-y-1.5 max-h-28 overflow-y-auto pr-0.5">
-                          {editPumpConfigs.map((pc, pIdx) => (
-                            <div key={pIdx} className="flex items-center gap-1.5 bg-white p-1.5 rounded border border-amber-100 justify-between">
-                              <div className="flex flex-col text-left">
-                                <span className="font-bold text-slate-700 text-[10px] leading-tight">{pc.label}</span>
-                                <span className="text-[8px] text-slate-400 font-medium">Dispenser {pc.dispenserNo}</span>
-                              </div>
-                              <select
-                                value={pc.fuelType}
-                                onChange={(e) => {
-                                  const val = e.target.value as FuelGrade;
-                                  setEditPumpConfigs(prev => prev.map((p, i) => i === pIdx ? { ...p, fuelType: val } : p));
-                                }}
-                                className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-700 focus:outline-none"
-                              >
-                                <option value="GAS91">GAS91</option>
-                                <option value="GAS95">GAS95</option>
-                                <option value="GAS98">GAS98</option>
-                                <option value="DIESEL">DIESEL</option>
-                              </select>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Station Supervisor Portal Credentials update fields */}
-                      <div className="bg-indigo-50/50 border border-indigo-100 rounded-lg p-2.5 space-y-2">
-                        <span className="text-[10px] uppercase font-black text-[#5c4ee3] block">Station Supervisor Portal Credentials</span>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-0.5">
-                            <span className="text-[8px] font-bold text-slate-500 block uppercase">Username</span>
-                            <input
-                              type="text"
-                              className="w-full text-xs font-sans font-medium text-slate-705 bg-white border border-slate-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
-                              value={editUsername}
-                              onChange={(e) => setEditUsername(e.target.value.toLowerCase().replace(/\s+/g, ''))}
-                            />
-                          </div>
-                          <div className="space-y-0.5">
-                            <span className="text-[8px] font-bold text-slate-500 block uppercase">Password</span>
-                            <input
-                              type="password"
-                              className="w-full text-[10px] font-mono font-medium text-emerald-700 bg-white border border-slate-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
-                              value={editPassword}
-                              onChange={(e) => setEditPassword(e.target.value)}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Actions for editing station */}
-                  <div className="flex justify-end gap-1.5 pt-2 mt-2 border-t border-slate-200">
-                    <button
-                      type="button"
-                      onClick={() => setEditingStationId(null)}
-                      className="px-2.5 py-1 text-slate-500 border border-slate-305 hover:bg-slate-50 rounded text-[11px] font-bold"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateStation(station)}
-                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold flex items-center gap-1"
-                    >
-                      <Check size={12} />
-                      Save Changes
-                    </button>
+                  <div className="flex items-center gap-2">
+                    <User size={14} className="text-slate-400 shrink-0" />
+                    <span className="text-slate-700">{station.manager}</span>
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-2 text-xs font-mono text-[#4a5568] bg-[#f8fafc] border border-slate-150 rounded-lg p-3">
-                  {saveSuccessStationId === station.id && (
-                    <div className="text-[10px] text-emerald-700 bg-emerald-50 p-1.5 rounded border border-emerald-100 font-bold mb-2 flex items-center gap-1.5">
-                      <Check size={12} className="text-emerald-600 shrink-0" />
-                      <span>Changes saved successfully!</span>
+
+                {/* Assets Summary Panel */}
+                <div className="bg-slate-55 border border-slate-200 rounded-lg p-3 grid grid-cols-2 gap-2 text-xs font-semibold">
+                  <div className="space-y-1 border-r border-slate-200 pr-2">
+                    <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Reservoirs</span>
+                    <div className="flex items-center gap-1.5 text-slate-700">
+                      <Droplet size={14} className="text-indigo-500" />
+                      <div>
+                        <div className="font-bold">{associatedTanks.length} Tanks</div>
+                        <div className="text-[9px] text-slate-400 font-mono">{(totalCapacity / 1000).toFixed(0)}k Liters</div>
+                      </div>
                     </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span>Manager:</span>
-                    <span className="font-bold text-slate-700">{station.manager}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Connected Tanks:</span>
-                    <span className="font-bold text-indigo-700">{associatedTanks.length} Reservoir lines</span>
+
+                  <div className="space-y-1 pl-2">
+                    <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Hardware</span>
+                    <div className="flex items-center gap-1.5 text-slate-700">
+                      <Server size={14} className="text-[#6c5dd3]" />
+                      <div>
+                        <div className="font-bold">{station.dispenserCount || 1} Dispenser</div>
+                        <div className="text-[9px] text-slate-400 font-mono">{stationPumps.length} Nozzles</div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-[#805ad5]">
-                    <span>Equipment Specs:</span>
-                    <span className="font-bold">
-                      {station.dispenserCount || 1} Disp. ({(pumps.filter(p => p.stationId === station.id)).length} Nozzles)
-                    </span>
+                </div>
+
+                {/* Retail Pricing Panel */}
+                <div className="border-t border-slate-100 pt-2 text-xs font-semibold">
+                  <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block mb-1">Pricing Benchmarks (SAR)</span>
+                  <div className="flex items-center gap-3 text-slate-700">
+                    <div className="bg-slate-50 border border-slate-200 px-2 py-1 rounded flex items-center gap-1">
+                      <span className="text-[9px] font-black text-slate-400 uppercase font-sans">91</span>
+                      <span className="font-mono font-bold text-slate-700">{station.fuelPricing.GAS91.toFixed(2)}</span>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 px-2 py-1 rounded flex items-center gap-1">
+                      <span className="text-[9px] font-black text-slate-400 uppercase font-sans">95</span>
+                      <span className="font-mono font-bold text-slate-700">{station.fuelPricing.GAS95.toFixed(2)}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-slate-500 border-t border-slate-200/60 pt-1.5 mt-1">
-                    <span>Login Supervisor:</span>
-                    <span className="font-bold text-slate-800 font-sans">{station.username || `${station.code.toLowerCase()}.supervisor`}</span>
+                </div>
+
+                {/* supervisor Credentials Masked Toggle Box */}
+                <div className="bg-indigo-50/50 border border-indigo-100 rounded-lg p-3 text-xs space-y-1">
+                  <div className="flex items-center justify-between text-slate-400">
+                    <span className="text-[9px] uppercase font-black tracking-wider block">Supervisor Account</span>
+                    <button
+                      onClick={() => togglePasswordVisibility(station.id)}
+                      className="text-[#6c5dd3] hover:text-[#5c4eb3] p-0.5 rounded hover:bg-indigo-50 transition-colors"
+                      title={isPasswordVisible ? 'Mask passphrase' : 'Show supervisor credentials'}
+                    >
+                      {isPasswordVisible ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
                   </div>
-                  <div className="flex justify-between text-slate-500">
-                    <span>Passphrase:</span>
-                    <span className="font-mono text-emerald-700 font-bold">{station.password || 'password123'}</span>
+
+                  <div className="flex flex-col gap-1 text-slate-700 font-medium font-sans">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-450 text-[10px]">Username:</span>
+                      <span className="font-bold font-mono text-slate-800">{station.username || `${station.code.toLowerCase()}.supervisor`}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-450 text-[10px]">Passphrase:</span>
+                      <span className="font-mono text-emerald-700 font-bold">
+                        {isPasswordVisible ? (station.password || 'password123') : '••••••••'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Default Price GAS91:</span>
-                    <span className="font-bold text-slate-700">SAR {station.fuelPricing.GAS91.toFixed(2)}</span>
+                </div>
+
+                {/* Card Actions Footer */}
+                <div className="flex items-center justify-between gap-1.5 pt-3 border-t border-slate-100 mt-2">
+                  <select
+                    value={station.status}
+                    onChange={(e) => {
+                      if (session.role === 'VIEWER') {
+                        alert('Access Denied: Read-only VIEWER profile cannot modify station status.');
+                        return;
+                      }
+                      updateStationStatus(station.id, e.target.value as any);
+                    }}
+                    disabled={session.role === 'VIEWER'}
+                    className="text-xs bg-white border border-[#cbd5e0] rounded-lg px-2.5 py-1.5 font-bold text-slate-750 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none"
+                  >
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="MAINTENANCE">MAINTENANCE</option>
+                    <option value="INACTIVE">INACTIVE</option>
+                  </select>
+
+                  <div className="flex items-center gap-1">
+                    {session.role !== 'VIEWER' && (
+                      <button
+                        onClick={() => openEditModal(station)}
+                        className="p-1.5 text-slate-500 hover:text-indigo-650 hover:bg-slate-100 rounded-lg transition-all border border-slate-200"
+                        title="Edit Station Specifications"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    )}
+                    
+                    {isSuperAdmin && (
+                      <button
+                        onClick={() => {
+                          setStationToDelete(station);
+                          setDeleteConfirmCode('');
+                        }}
+                        className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all border border-rose-200"
+                        title="Delete Station and assets"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                   </div>
-                  <div className="flex justify-between">
-                    <span>Default Price GAS95:</span>
-                    <span className="font-bold text-slate-700">SAR {station.fuelPricing.GAS95.toFixed(2)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 1. ONBOARD NEW STATION INSTANCE WIZARD MODAL */}
+      {/* ========================================================= */}
+      {showWizard && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto scroll-smooth flex flex-col justify-between text-left">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-150">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-[#efecfe] text-[#6c5dd3] rounded-lg">
+                  <Building2 size={16} />
+                </div>
+                <h3 className="text-xs font-black text-slate-800 tracking-wider uppercase">
+                  Onboard Station Instance
+                </h3>
+              </div>
+              <button 
+                onClick={() => { setShowWizard(false); setWizardTab('general'); }} 
+                className="text-slate-400 hover:text-slate-650 p-1 rounded-md"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Steps Tabs Navigation */}
+            <div className="flex border-b border-slate-100 mt-3 text-[10px] font-black uppercase text-slate-400 select-none">
+              {(['general', 'assets', 'credentials', 'pricing'] as const).map(tab => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setWizardTab(tab)}
+                  className={`flex-1 text-center py-2 border-b-2 transition-all ${
+                    wizardTab === tab 
+                      ? 'border-[#6c5dd3] text-[#6c5dd3] font-black' 
+                      : 'border-transparent hover:text-slate-655'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleCreateStation} className="space-y-4 mt-4 text-xs font-sans flex-1">
+              
+              {/* Tab 1: General Specs */}
+              {wizardTab === 'general' && (
+                <div className="space-y-3 animate-fade-in">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block uppercase text-[9px] tracking-wider">Station Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Riyadh Exit 4 - Al Yasmeen"
+                      value={newStationName}
+                      onChange={(e) => setNewStationName(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-600 block uppercase text-[9px] tracking-wider">Branch Code</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. RY-YAS-04"
+                        value={newStationCode}
+                        onChange={(e) => setNewStationCode(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-250 rounded-lg p-2.5 text-slate-850 font-mono font-bold uppercase focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-600 block uppercase text-[9px] tracking-wider">Logistics Manager</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Tariq Alharbi"
+                        value={newManager}
+                        onChange={(e) => setNewManager(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block uppercase text-[9px] tracking-wider">Physical Location / Address</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. King Fahd Branch Rd, Al Yasmin, Riyadh"
+                      value={newLocation}
+                      onChange={(e) => setNewLocation(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-250 rounded-lg p-2.5 text-slate-800 font-medium focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
+                      required
+                    />
                   </div>
                 </div>
               )}
 
-              {/* Location marker */}
-              <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium font-sans">
-                <MapPin size={14} className="text-slate-400 shrink-0" />
-                <span className="truncate">{station.location}</span>
-              </div>
+              {/* Tab 2: Inventory & Hardware configuration */}
+              {wizardTab === 'assets' && (
+                <div className="space-y-3.5 animate-fade-in">
+                  {/* Tanks Specs */}
+                  <div className="bg-slate-55 border border-slate-200 rounded-lg p-3 space-y-2.5 text-left">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-black text-slate-600">Storage Reservoir Lines</span>
+                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1">
+                        <button 
+                          type="button" 
+                          onClick={() => handleTankCountChange(tankCount - 1)}
+                          className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
+                          disabled={tankCount <= 1}
+                        >
+                          -
+                        </button>
+                        <span className="w-5 text-center font-mono font-bold text-slate-800 text-[11px]">{tankCount}</span>
+                        <button 
+                          type="button" 
+                          onClick={() => handleTankCountChange(tankCount + 1)}
+                          className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
+                          disabled={tankCount >= 8}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
 
-              {/* Action buttons */}
-              <div className="flex items-center gap-1.5 pt-3 border-t border-slate-100 justify-end">
-                <select
-                  value={station.status}
-                  onChange={(e) => {
-                    if (session.role === 'VIEWER') {
-                      alert('Access Denied: Read-only VIEWER profile cannot modify station status.');
-                      return;
-                    }
-                    updateStationStatus(station.id, e.target.value as any);
-                  }}
-                  disabled={session.role === 'VIEWER'}
-                  className="text-xs bg-white border border-[#cbd5e0] rounded px-2 py-1 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <option value="ACTIVE">ACTIVE</option>
-                  <option value="MAINTENANCE">MAINTENANCE</option>
-                  <option value="INACTIVE">INACTIVE</option>
-                </select>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* SUPABASE SYNCHRONIZER HUB */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-6 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-[#efecfe] rounded-lg text-[#6c5dd3]">
-              <Database size={20} />
-            </div>
-            <div>
-              <h4 className="text-sm font-black text-slate-800 tracking-tight uppercase flex items-center gap-1.5">
-                Supabase Onboarding User Sync Controller
-                <span className="text-[9px] bg-indigo-150 text-indigo-800 font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                  PostgreSQL BaaS
-                </span>
-              </h4>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Real-time hook mapping station supervisor users to standard Supabase SQL schema.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setShowConfigPanel(!showConfigPanel)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-black uppercase transition-all ${
-                dbConfig.isLocalOverride 
-                  ? 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100' 
-                  : 'bg-indigo-50 text-indigo-800 border border-indigo-150 hover:bg-indigo-100'
-              }`}
-            >
-              <Settings size={12} />
-              <span>{dbConfig.isLocalOverride ? 'Modify Credentials' : 'Link Supabase (Live)'}</span>
-            </button>
-            <button
-              onClick={refreshSupabaseData}
-              disabled={isSyncing}
-              className="flex items-center gap-1 bg-slate-50 hover:bg-slate-150 border border-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-black uppercase transition-colors"
-            >
-              <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-              <span>Refresh Synced List</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Dynamic Live Connectivity Alert Banner */}
-        {connectivity.checked && dbConfig.isConfigured && (
-          <div className={`p-4 rounded-xl border text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in ${
-            connectivity.reachable 
-              ? 'bg-emerald-50/70 border-emerald-150 text-emerald-800' 
-              : 'bg-rose-50 border-rose-200 text-rose-900 shadow-xs'
-          }`}>
-            <div className="flex items-start gap-2.5">
-              <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${connectivity.reachable ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                {connectivity.reachable ? <Wifi size={14} /> : <WifiOff size={14} className="animate-pulse" />}
-              </div>
-              <div className="space-y-0.5">
-                <span className="font-extrabold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
-                  {connectivity.reachable ? '● Live Supabase Connection Healthy' : '▲ SQL Database Connectivity Alert'}
-                  {!connectivity.reachable && (
-                    <span className="bg-rose-100 text-rose-850 px-1.5 py-0.5 rounded-full font-extrabold text-[8px]">
-                      DNS RESOLUTION FAILURE
-                    </span>
-                  )}
-                </span>
-                <p className="leading-relaxed text-[11px] font-medium text-slate-600">
-                  {connectivity.message}
-                </p>
-                {!connectivity.reachable && (
-                  <div className="text-[10px] text-rose-800 bg-[#fff5f5]/80 p-2.5 rounded-lg border border-rose-100 mt-2 leading-normal space-y-1">
-                    <p className="font-extrabold">Troubleshooting Actions:</p>
-                    <ul className="list-disc pl-3.5 space-y-1">
-                      <li>Check for spelling errors in your Project URL <code className="bg-rose-100 font-mono text-[10px] px-1 rounded">{dbConfig.url}</code>.</li>
-                      <li>Check if your Supabase project was deleted, renamed, or paused due to inactivity.</li>
-                      <li>Click <button type="button" onClick={() => setShowConfigPanel(true)} className="underline hover:text-indigo-700 font-black">Modify Credentials</button> to link a valid active Supabase instance, or <button type="button" onClick={handleClearConfig} className="underline hover:text-red-700 font-black">Clear Overrides</button> to return to defaults.</li>
-                    </ul>
+                    <div className="space-y-1.5 max-h-32 overflow-y-auto pr-0.5">
+                      {tankConfigs.map((tc, index) => (
+                        <div key={index} className="flex items-center gap-2 bg-white p-2 rounded border border-slate-150 justify-between">
+                          <span className="font-bold text-slate-700 min-w-[50px]">{tc.label}</span>
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              value={tc.fuelType}
+                              onChange={(e) => updateTankConfig(index, 'fuelType', e.target.value as FuelGrade)}
+                              className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-700 focus:outline-none"
+                            >
+                              <option value="GAS91">GAS91</option>
+                              <option value="GAS95">GAS95</option>
+                              <option value="GAS98">GAS98</option>
+                              <option value="DIESEL">DIESEL</option>
+                            </select>
+                            <input
+                              type="number"
+                              min="5000"
+                              max="100000"
+                              step="5000"
+                              value={tc.capacity}
+                              onChange={(e) => updateTankConfig(index, 'capacity', Number(e.target.value))}
+                              className="w-14 bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-800 text-right focus:outline-none"
+                            />
+                            <span className="text-[9px] text-slate-400">L</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
+
+                  {/* Dispensers Specs */}
+                  <div className="bg-slate-55 border border-slate-200 rounded-lg p-3 space-y-2.5 text-left">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-black text-slate-600">Dispensers Count</span>
+                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1">
+                        <button 
+                          type="button" 
+                          onClick={() => handleDispenserCountChange(dispenserCount - 1)}
+                          className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
+                          disabled={dispenserCount <= 1}
+                        >
+                          -
+                        </button>
+                        <span className="w-5 text-center font-mono font-bold text-slate-800 text-[11px]">{dispenserCount}</span>
+                        <button 
+                          type="button" 
+                          onClick={() => handleDispenserCountChange(dispenserCount + 1)}
+                          className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
+                          disabled={dispenserCount >= 6}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-24 overflow-y-auto pr-0.5">
+                      {dispenserNozzles.map((nozzles, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-slate-150">
+                          <span className="font-bold text-slate-705">Dispenser {String(idx + 1).padStart(2, '0')}</span>
+                          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded px-1 py-0.5">
+                            <span className="text-[8px] font-black text-slate-400 uppercase mr-1">Nozzles:</span>
+                            <button 
+                              type="button" 
+                              onClick={() => handleNozzleCountChange(idx, nozzles - 1)}
+                              className="w-4 h-4 hover:bg-slate-200 font-bold rounded flex items-center justify-center text-[10px] text-slate-555"
+                              disabled={nozzles <= 1}
+                            >
+                              -
+                            </button>
+                            <span className="w-3 text-center font-mono text-[9px] text-slate-850 font-bold">{nozzles}</span>
+                            <button 
+                              type="button" 
+                              onClick={() => handleNozzleCountChange(idx, nozzles + 1)}
+                              className="w-4 h-4 hover:bg-slate-200 font-bold rounded flex items-center justify-center text-[10px] text-slate-555"
+                              disabled={nozzles >= 4}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: Security & Credentials */}
+              {wizardTab === 'credentials' && (
+                <div className="space-y-3.5 animate-fade-in">
+                  <div className="bg-indigo-50/50 border border-indigo-100 rounded-lg p-4 space-y-3">
+                    <span className="text-[10px] uppercase font-black text-[#5c4ee3] block">Station Supervisor Portal Access</span>
+                    
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-655 block text-[9px] uppercase tracking-wider">Supervisor Username</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. riyadh.supervisor"
+                        value={supervisorUsername}
+                        onChange={(e) => setSupervisorUsername(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+                        className="w-full bg-white border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-655 block text-[9px] uppercase tracking-wider">Temporary Password Code</label>
+                      <input
+                        type="text"
+                        placeholder="Security Passphrase"
+                        value={supervisorPassword}
+                        onChange={(e) => setSupervisorPassword(e.target.value)}
+                        className="w-full bg-white border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 4: Pricing Confirmation */}
+              {wizardTab === 'pricing' && (
+                <div className="space-y-3.5 animate-fade-in text-slate-500 text-xs leading-normal">
+                  <div className="bg-linear-to-tr from-slate-50 to-indigo-50 border border-indigo-100 rounded-lg p-4 font-semibold text-slate-600 space-y-2">
+                    <h5 className="font-black text-slate-800 uppercase tracking-tight text-[10px] text-indigo-705">Preloaded Standard Pricing Index</h5>
+                    <ul className="list-disc pl-4 space-y-1 text-[11px]">
+                      <li>GAS91: 2.18 SAR / Liter</li>
+                      <li>GAS95: 2.33 SAR / Liter</li>
+                      <li>GAS98: 2.60 SAR / Liter</li>
+                      <li>DIESEL: 1.15 SAR / Liter</li>
+                    </ul>
+                    <p className="text-[10px] text-slate-400 font-normal leading-snug">
+                      Pricing coefficients can be adjusted locally by regional supervisors or modified by admins after onboarding is completed.
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-[10px] leading-relaxed flex items-start gap-2">
+                    <CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" />
+                    <span>
+                      Ready to initialize **{newStationName || 'unnamed'}** station registry structure with **{tankCount} tanks** and **{pumpConfigs.length} dispenser nozzles** on Supabase.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Wizard Action Buttons */}
+              <div className="flex items-center gap-2 pt-4 border-t border-slate-150 justify-end">
+                {wizardTab !== 'general' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (wizardTab === 'pricing') setWizardTab('credentials');
+                      else if (wizardTab === 'credentials') setWizardTab('assets');
+                      else if (wizardTab === 'assets') setWizardTab('general');
+                    }}
+                    className="px-3.5 py-2 border border-slate-200 rounded-lg text-slate-605 font-bold"
+                  >
+                    Back
+                  </button>
+                )}
+
+                {wizardTab !== 'pricing' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (wizardTab === 'general') setWizardTab('assets');
+                      else if (wizardTab === 'assets') setWizardTab('credentials');
+                      else if (wizardTab === 'credentials') setWizardTab('pricing');
+                    }}
+                    className="px-4 py-2 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-900 transition-colors"
+                  >
+                    Continue
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white rounded-lg font-bold shadow-xs transition-colors"
+                  >
+                    Onboard Instance
+                  </button>
                 )}
               </div>
-            </div>
-            {connectivity.reachable ? (
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-1 rounded-md shrink-0 self-start md:self-center uppercase tracking-wider">
-                Connected
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={refreshSupabaseData}
-                disabled={isSyncing}
-                className="text-[10px] bg-rose-250 hover:bg-rose-300 text-rose-950 font-black px-3 py-2 rounded-lg shrink-0 self-end md:self-center uppercase tracking-wider transition-colors border border-rose-350"
-              >
-                Retry Connection Check
-              </button>
-            )}
+            </form>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Dynamic Credentials Custom Overlay Panel */}
-        {showConfigPanel && (
-          <div className="p-4 rounded-xl border border-indigo-150 bg-indigo-50/40 space-y-3.5 text-xs animate-fade-in/10">
-            <div className="flex items-center justify-between">
-              <span className="font-extrabold text-indigo-900 uppercase text-[10px] tracking-wider flex items-center gap-1">
-                <Key size={12} />
-                Link Your Supabase Database Instantly
-              </span>
+      {/* ========================================================= */}
+      {/* 2. EDIT STATION INSTANCE SPECIFICATIONS MODAL */}
+      {/* ========================================================= */}
+      {editingStation && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto scroll-smooth flex flex-col justify-between text-left">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-150">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-[#efecfe] text-[#6c5dd3] rounded-lg">
+                  <Pencil size={16} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-slate-800 tracking-wider uppercase">
+                    Edit Station Specs
+                  </h3>
+                  <span className="text-[10px] text-slate-400 font-mono">ID: {editingStation.id}</span>
+                </div>
+              </div>
               <button 
-                onClick={() => setShowConfigPanel(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold"
+                onClick={() => setEditingStation(null)} 
+                className="text-slate-400 hover:text-slate-650 p-1 rounded-md"
               >
-                Close
+                <X size={16} />
               </button>
             </div>
-            <p className="text-[11px] text-indigo-800 leading-relaxed -mt-1 bg-indigo-50 p-2 rounded-lg">
-              No need to configure server-side files! Simply copy-paste your Supabase credentials here. They will be securely cached in your local workspace sandbox so you can test real database writes right inside this browser preview.
-            </p>
-            <form onSubmit={handleSaveConfig} className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+
+            {/* Tabs for Edit Mode */}
+            <div className="flex border-b border-slate-100 mt-3 text-[10px] font-black uppercase text-slate-400 select-none">
+              {(['general', 'assets', 'credentials', 'pricing'] as const).map(tab => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setEditTab(tab)}
+                  className={`flex-1 text-center py-2 border-b-2 transition-all ${
+                    editTab === tab 
+                      ? 'border-[#6c5dd3] text-[#6c5dd3] font-black' 
+                      : 'border-transparent hover:text-slate-655'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {saveError && (
+              <div className="text-[10px] text-rose-600 bg-rose-50 p-2 rounded-lg border border-rose-100 font-bold mt-3">
+                {saveError}
+              </div>
+            )}
+
+            {/* Edit Form */}
+            <div className="space-y-4 mt-4 text-xs font-sans flex-1">
+
+              {/* Edit Tab 1: General */}
+              {editTab === 'general' && (
+                <div className="space-y-3 animate-fade-in">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block uppercase text-[9px] tracking-wider">Station Name</label>
+                    <input
+                      type="text"
+                      className="w-full bg-slate-50 border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-600 block uppercase text-[9px] tracking-wider">Branch Code</label>
+                      <input
+                        type="text"
+                        className="w-full bg-slate-100 border border-slate-250 rounded-lg p-2.5 text-slate-400 font-mono font-bold uppercase select-none cursor-not-allowed"
+                        value={editCode}
+                        disabled
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-600 block uppercase text-[9px] tracking-wider">Logistics Manager</label>
+                      <input
+                        type="text"
+                        className="w-full bg-slate-50 border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
+                        value={editManager}
+                        onChange={(e) => setEditManager(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block uppercase text-[9px] tracking-wider">Physical Location</label>
+                    <input
+                      type="text"
+                      className="w-full bg-slate-50 border border-slate-250 rounded-lg p-2.5 text-slate-800 font-medium focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
+                      value={editLocation}
+                      onChange={(e) => setEditLocation(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Edit Tab 2: Assets */}
+              {editTab === 'assets' && (
+                <div className="space-y-3.5 animate-fade-in">
+                  
+                  {/* Tanks Configuration */}
+                  <div className="bg-slate-55 border border-slate-200 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-black text-slate-600">Storage Reservoir Lines</span>
+                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1">
+                        <button
+                          type="button"
+                          onClick={() => handleEditTankCountChange(editTankConfigs.length - 1)}
+                          className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
+                          disabled={editTankConfigs.length <= 1}
+                        >
+                          -
+                        </button>
+                        <span className="text-[10px] font-bold text-slate-800 font-mono w-4 text-center">{editTankConfigs.length}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleEditTankCountChange(editTankConfigs.length + 1)}
+                          className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
+                          disabled={editTankConfigs.length >= 8}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-32 overflow-y-auto pr-0.5">
+                      {editTankConfigs.map((tc, tIdx) => (
+                        <div key={tIdx} className="flex items-center gap-2 bg-white p-2 rounded border border-slate-150 justify-between">
+                          <span className="font-bold text-slate-600 truncate max-w-[65px]">{tc.label}</span>
+                          <div className="flex items-center gap-1">
+                            <select
+                              value={tc.fuelType}
+                              onChange={(e) => {
+                                const val = e.target.value as FuelGrade;
+                                setEditTankConfigs(prev => prev.map((t, i) => i === tIdx ? { ...t, fuelType: val } : t));
+                              }}
+                              className="bg-slate-55 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-750 focus:outline-none"
+                            >
+                              <option value="GAS91">GAS91</option>
+                              <option value="GAS95">GAS95</option>
+                              <option value="GAS98">GAS98</option>
+                              <option value="DIESEL">DIESEL</option>
+                            </select>
+                            <input
+                              type="number"
+                              min="5000"
+                              max="120000"
+                              step="5000"
+                              value={tc.capacity}
+                              onChange={(e) => {
+                                const val = Math.max(0, parseInt(e.target.value) || 0);
+                                setEditTankConfigs(prev => prev.map((t, i) => i === tIdx ? { ...t, capacity: val } : t));
+                              }}
+                              className="w-14 bg-slate-55 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-800 text-right focus:outline-none"
+                            />
+                            <span className="text-[9px] text-slate-400">L</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Dispensers Configuration */}
+                  <div className="bg-slate-55 border border-slate-200 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-black text-slate-600">Dispensers Count</span>
+                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-1">
+                        <button
+                          type="button"
+                          onClick={() => handleEditDispenserCountChange(editDispenserCount - 1)}
+                          className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
+                          disabled={editDispenserCount <= 1}
+                        >
+                          -
+                        </button>
+                        <span className="text-[10px] font-bold text-slate-800 font-mono w-4 text-center">{editDispenserCount}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleEditDispenserCountChange(editDispenserCount + 1)}
+                          className="w-5 h-5 font-bold hover:bg-slate-100 rounded text-slate-500 text-xs flex items-center justify-center"
+                          disabled={editDispenserCount >= 6}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-24 overflow-y-auto pr-0.5">
+                      {editDispenserNozzles.map((nozzles, dispIdx) => (
+                        <div key={dispIdx} className="flex items-center justify-between bg-white p-2 rounded border border-slate-150">
+                          <span className="font-bold text-slate-650">Dispenser {String(dispIdx + 1).padStart(2, '0')}</span>
+                          <div className="flex items-center gap-1 bg-slate-55 border border-slate-200 rounded px-1 py-0.5">
+                            <span className="text-[8px] font-black text-slate-400 uppercase mr-1">Nozzles:</span>
+                            <button
+                              type="button"
+                              onClick={() => handleEditNozzleCountChange(dispIdx, nozzles - 1)}
+                              className="w-4 h-4 font-black text-slate-500 hover:bg-slate-200 rounded flex items-center justify-center text-[10px]"
+                              disabled={nozzles <= 1}
+                            >
+                              -
+                            </button>
+                            <span className="text-[9px] font-mono font-bold text-slate-750 w-3 text-center">{nozzles}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleEditNozzleCountChange(dispIdx, nozzles + 1)}
+                              className="w-4 h-4 font-black text-slate-500 hover:bg-slate-200 rounded flex items-center justify-center text-[10px]"
+                              disabled={nozzles >= 4}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Nozzles Assignment */}
+                  <div className="bg-amber-50/50 border border-amber-200 rounded-lg p-3 space-y-2 max-h-36 overflow-y-auto">
+                    <span className="text-[10px] uppercase font-black text-amber-805 block">Dispenser Nozzles Fuel Mapping</span>
+                    {editPumpConfigs.map((pc, pIdx) => (
+                      <div key={pIdx} className="flex items-center gap-2 bg-white p-2 rounded border border-amber-100 justify-between">
+                        <div className="flex flex-col text-left">
+                          <span className="font-bold text-slate-700 leading-tight">{pc.label}</span>
+                          <span className="text-[9px] text-slate-400 font-medium">Dispenser {pc.dispenserNo}</span>
+                        </div>
+                        <select
+                          value={pc.fuelType}
+                          onChange={(e) => {
+                            const val = e.target.value as FuelGrade;
+                            setEditPumpConfigs(prev => prev.map((p, i) => i === pIdx ? { ...p, fuelType: val } : p));
+                          }}
+                          className="bg-slate-55 border border-slate-200 rounded px-1.5 py-1 text-[10px] font-semibold text-slate-705 focus:outline-none"
+                        >
+                          <option value="GAS91">GAS91</option>
+                          <option value="GAS95">GAS95</option>
+                          <option value="GAS98">GAS98</option>
+                          <option value="DIESEL">DIESEL</option>
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+
+                </div>
+              )}
+
+              {/* Edit Tab 3: Credentials */}
+              {editTab === 'credentials' && (
+                <div className="space-y-3.5 animate-fade-in">
+                  <div className="bg-indigo-50/50 border border-indigo-100 rounded-lg p-4 space-y-3">
+                    <span className="text-[10px] uppercase font-black text-[#5c4ee3] block">Modify Portal Credentials</span>
+                    
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-655 block text-[9px] uppercase tracking-wider">Supervisor Username</label>
+                      <input
+                        type="text"
+                        className="w-full bg-white border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
+                        value={editUsername}
+                        onChange={(e) => setEditUsername(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-655 block text-[9px] uppercase tracking-wider">Security Passphrase</label>
+                      <input
+                        type="text"
+                        className="w-full bg-white border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
+                        value={editPassword}
+                        onChange={(e) => setEditPassword(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Edit Tab 4: Pricing */}
+              {editTab === 'pricing' && (
+                <div className="space-y-3 animate-fade-in">
+                  <div className="grid grid-cols-2 gap-4 bg-slate-50 border border-slate-200 rounded-lg p-4">
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-600 block uppercase text-[9px] tracking-wider">Default Price GAS91 (SAR)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="w-full bg-white border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
+                        value={editPriceGas91}
+                        onChange={(e) => setEditPriceGas91(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-600 block uppercase text-[9px] tracking-wider">Default Price GAS95 (SAR)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="w-full bg-white border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
+                        value={editPriceGas95}
+                        onChange={(e) => setEditPriceGas95(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Edit Action Buttons */}
+              <div className="flex items-center gap-2 pt-4 border-t border-slate-150 justify-end">
+                <button
+                  onClick={() => setEditingStation(null)}
+                  className="px-3.5 py-2 border border-slate-200 rounded-lg text-[#2d3748] font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateStationSave}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-xs transition-colors flex items-center gap-1"
+                >
+                  <Check size={14} />
+                  Save Changes
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 3. DELETE CONFIRMATION MODAL */}
+      {/* ========================================================= */}
+      {stationToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl p-6 max-w-sm w-full text-left">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-rose-100 text-rose-600 rounded-lg shrink-0">
+                <AlertCircle size={20} />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">Delete Station Instance</h4>
+                <p className="text-xs text-slate-500 leading-normal">
+                  Warning: Deleting station **&quot;{stationToDelete.name}&quot;** ({stationToDelete.code}) will permanently terminate all associated reservoirs, dispensers, logs, and supervisor credentials.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 space-y-2">
+              <span className="font-semibold block text-slate-500 uppercase text-[9px] tracking-wider">Verification Required</span>
+              <p className="leading-snug">To confirm this action, please type the station code prefix <code className="bg-slate-200 font-mono text-[10px] px-1 rounded font-bold text-slate-800">{stationToDelete.code}</code> below:</p>
+              <input
+                type="text"
+                className="w-full bg-white border border-slate-300 rounded-lg p-2 font-mono font-bold uppercase focus:outline-none focus:ring-1 focus:ring-rose-500"
+                placeholder={stationToDelete.code}
+                value={deleteConfirmCode}
+                onChange={(e) => setDeleteConfirmCode(e.target.value)}
+              />
+            </div>
+
+            <div className="flex items-center gap-2 mt-4 justify-end">
+              <button
+                onClick={() => { setStationToDelete(null); setDeleteConfirmCode(''); }}
+                className="px-3.5 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-650"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteStationTrigger}
+                disabled={deleteConfirmCode.toUpperCase() !== stationToDelete.code.toUpperCase()}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+              >
+                <Trash2 size={13} />
+                Confirm Deletion
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 4. DB CONNECTION SYNC SETTINGS MODAL */}
+      {/* ========================================================= */}
+      {showSyncSettings && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl p-6 max-w-md w-full text-left">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-150">
+              <div className="flex items-center gap-2">
+                <Database size={16} className="text-[#6c5dd3]" />
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                  Supabase DB Connection Settings
+                </h3>
+              </div>
+              <button onClick={() => setShowSyncSettings(false)} className="text-slate-400 hover:text-slate-655 p-1">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="mt-3 bg-indigo-50 border border-indigo-150 p-3 rounded-lg text-xs text-indigo-900 leading-relaxed font-semibold">
+              These settings link your browser preview locally to a live PostgreSQL BaaS database. If overrides are cleared, defaults from project environment variables will be used.
+            </div>
+
+            <form onSubmit={handleSaveConfig} className="space-y-3.5 mt-4 text-xs font-sans">
+              <div className="flex items-center gap-2 pb-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Quick Presets:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputUrl('http://localhost:54321');
+                    setInputKey('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlbXAiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTU2MTM3MTE0MSwiZXhwIjoxOTA2OTQ3MTQxfQ.standard-anon-key');
+                  }}
+                  className="bg-indigo-50 hover:bg-indigo-100 text-[#6c5dd3] border border-indigo-200 px-2 py-0.5 rounded text-[9px] font-bold transition-all"
+                >
+                  Localhost (http://localhost:54321)
+                </button>
+              </div>
+
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 block text-[10px] uppercase">Supabase Project URL</label>
                 <input
@@ -1241,447 +1740,140 @@ export const StationsDirectory: React.FC = () => {
                   placeholder="https://xyzcompany.supabase.co"
                   value={inputUrl}
                   onChange={(e) => setInputUrl(e.target.value)}
-                  className="w-full bg-white border border-slate-350 px-3 py-2 rounded-lg font-mono text-[11px] focus:outline-none focus:border-[#6c5dd3]"
+                  className="w-full bg-slate-50 border border-slate-350 px-3 py-2 rounded-lg font-mono text-[11px] focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
                 />
               </div>
+
               <div className="space-y-1">
-                <label className="font-bold text-slate-700 block text-[10px] uppercase font-mono">SUPABASE ANON / API KEY</label>
+                <label className="font-bold text-slate-700 block text-[10px] uppercase font-mono">Anon / API Key</label>
                 <input
                   type="password"
                   required
                   placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                   value={inputKey}
                   onChange={(e) => setInputKey(e.target.value)}
-                  className="w-full bg-white border border-slate-350 px-3 py-2 rounded-lg font-mono text-[11px] focus:outline-none focus:border-[#6c5dd3]"
+                  className="w-full bg-slate-50 border border-slate-350 px-3 py-2 rounded-lg font-mono text-[11px] focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#6c5dd3]"
                 />
               </div>
-              <div className="md:col-span-2 flex items-center justify-between pt-1 gap-2 border-t border-indigo-100">
+
+              {connectivity.checked && (
+                <div className={`p-3 rounded-lg border text-[11px] leading-snug flex items-start gap-2 ${
+                  connectivity.reachable ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-rose-50 border-rose-100 text-rose-900'
+                }`}>
+                  {connectivity.reachable ? <Wifi size={14} className="shrink-0 mt-0.5" /> : <WifiOff size={14} className="shrink-0 mt-0.5" />}
+                  <div>
+                    <span className="font-bold block uppercase text-[9px]">Connectivity Status</span>
+                    <span>{connectivity.message}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-150 mt-4">
                 <button
                   type="button"
                   onClick={handleClearConfig}
-                  className="text-slate-500 hover:text-red-650 flex items-center gap-1 text-[10px] font-black uppercase tracking-wider"
+                  className="text-rose-600 hover:text-rose-800 flex items-center gap-1 text-[10px] font-black uppercase tracking-wider"
                 >
                   <Trash2 size={12} />
                   Clear Overrides
                 </button>
-                <button
-                  type="submit"
-                  className="bg-[#6c5dd3] hover:bg-[#5b4ebf] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors"
-                >
-                  Save and Initialize Connection
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {configSuccessMsg && (
-          <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-150 rounded-lg text-xs font-semibold flex items-center gap-2">
-            <Check size={14} className="text-emerald-600 animate-bounce" />
-            <span>{configSuccessMsg}</span>
-          </div>
-        )}
-
-        {/* Configurations Banner */}
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs space-y-4">
-          {/* Connection Status Panel Realigned to a Clean Horizontal Matrix */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-[#4a5568] uppercase text-[10px] tracking-wider shrink-0">
-                  Connection Status:
-                </span>
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${
-                  dbConfig.isConfigured 
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-250' 
-                    : 'bg-amber-100 text-amber-800 border border-amber-250 animate-pulse'
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${dbConfig.isConfigured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                  {dbConfig.isConfigured ? (dbConfig.isLocalOverride ? 'Linked (Override)' : 'Configured via Env') : 'Needs Config'}
-                </span>
-              </div>
-              
-              <div className="flex items-center gap-4 text-[11px] font-mono">
-                <div className="flex items-center gap-1.5 border-l border-slate-200 pl-4">
-                  <span className="text-slate-400">DB Integration:</span>
-                  <span className="font-bold text-slate-700">Supabase</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowSyncSettings(false)}
+                    className="px-3.5 py-2 border border-slate-205 rounded-lg text-slate-650 font-bold"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-[#6c5dd3] hover:bg-[#5b4ebf] text-white px-4 py-2 rounded-lg font-bold uppercase transition-colors"
+                  >
+                    Save & Sync
+                  </button>
                 </div>
-                <div className="flex items-center gap-1.5 border-l border-slate-200 pl-4">
-                  <span className="text-slate-400">Mapped Table:</span>
-                  <span className="font-bold text-[#6c5dd3]">onboarded_users</span>
-                </div>
-                <div className="flex items-center gap-1.5 border-l border-slate-200 pl-4">
-                  <span className="text-slate-400">Endpoint URL:</span>
-                  <span className="font-bold text-slate-600 truncate max-w-[200px]" title={dbConfig.url}>
-                    {dbConfig.url || 'Not specified'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {syncStatusText && (
-              <div className="self-start md:self-auto px-3 py-1.5 bg-indigo-50 text-[#6c5dd3] border border-indigo-150 rounded-lg text-[10px] font-bold flex items-center gap-1.5 shrink-0 animate-pulse">
-                <Sparkles size={11} className="text-[#6c5dd3]" />
-                <span className="truncate max-w-[150px]">{syncStatusText}</span>
-              </div>
-            )}
-          </div>
-
-          {!dbConfig.isConfigured && (
-            <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded-lg space-y-1 text-amber-900">
-              <div className="flex gap-1 items-center font-bold text-[10px]">
-                <AlertCircle size={12} className="shrink-0 text-amber-600" />
-                <span>How to connect real Supabase:</span>
-              </div>
-              <p className="text-[10px] leading-relaxed text-amber-800">
-                Click the <strong>&quot;Link Supabase (Live)&quot;</strong> button above to connect your database directly in real-time, or configure <strong>VITE_SUPABASE_URL</strong> and <strong>VITE_SUPABASE_ANON_KEY</strong> in your environment.
-              </p>
-            </div>
-          )}
-
-
-        </div>
-
-        {/* Users Table / List */}
-        <div className="border border-slate-150 rounded-xl overflow-hidden text-xs">
-          <div className="bg-slate-50 px-4 py-3 border-b border-slate-150 flex items-center justify-between">
-            <span className="text-xs font-black text-slate-700 uppercase tracking-wider block">
-              Recorded Users Database Table ({supabaseUsers.length})
-            </span>
-            <span className="text-[10px] text-slate-400 font-mono">
-              Live synced view
-            </span>
-          </div>
-
-          {supabaseUsers.length === 0 ? (
-            <div className="p-10 text-center text-slate-400 font-semibold bg-white">
-              No users have been onboarded or recorded yet. Click &quot;Onboard New Retail Tenant&quot; above to create a station and sync credentials.
-            </div>
-          ) : (
-            <div className="overflow-x-auto bg-white">
-              <table className="w-full text-left font-medium border-collapse">
-                <thead>
-                  <tr className="bg-slate-50/50 border-b border-slate-150 text-slate-400 uppercase tracking-wider text-[10px] font-black">
-                    <th className="px-4 py-2.5">User ID / Created At</th>
-                    <th className="px-4 py-2.5">Supervisor Account</th>
-                    <th className="px-4 py-2.5">Security Passphrase</th>
-                    <th className="px-4 py-2.5">Manager name</th>
-                    <th className="px-4 py-2.5">Affiliated Station</th>
-                    <th className="px-4 py-2.5">Sync Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-150 font-mono text-[11px]">
-                  {supabaseUsers.map((user, idx) => (
-                    <tr key={user.id || idx} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-bold text-slate-800">{user.id}</div>
-                        <div className="text-[10px] text-slate-400">
-                          {user.created_at ? new Date(user.created_at).toLocaleString() : ''}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap font-bold text-indigo-700 font-mono">
-                        {user.username}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-rose-600 font-bold">
-                        {user.password_raw}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap font-sans font-semibold text-slate-700">
-                        {user.full_name}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-sans font-bold text-slate-800">{user.station_name}</div>
-                        <div className="text-[10px] text-slate-400 font-sans">Branch: {user.station_code}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
-                          dbConfig.isConfigured 
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
-                            : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
-                        }`}>
-                          {dbConfig.isConfigured ? 'Synced Online' : 'Saved Locally'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* NEW STATION ONBOARDING MODAL / PANEL WIZARD */}
-      {showWizard && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto scroll-smooth animate-fade-in text-left">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-150">
-              <h3 className="text-xs font-black text-slate-800 tracking-wider uppercase flex items-center gap-2">
-                <Server size={16} className="text-[#6c5dd3]" />
-                Onboard New SaaS Station Instance
-              </h3>
-              <button 
-                onClick={() => setShowWizard(false)} 
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateStation} className="space-y-4 mt-4 text-xs font-sans">
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-600 block">Retail Station Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Al Yasmeen - Riyadh Exit 4"
-                  value={newStationName}
-                  onChange={(e) => setNewStationName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="font-bold text-slate-600 block">Unique Code Prefix</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. AY-RIYD-04"
-                    value={newStationCode}
-                    onChange={(e) => setNewStationCode(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-250 rounded-lg p-2.5 text-slate-800 font-mono font-bold uppercase focus:outline-none"
-                    required
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="font-bold text-slate-600 block">Regional Logistics Manager</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Tariq Alharbi"
-                    value={newManager}
-                    onChange={(e) => setNewManager(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-250 rounded-lg p-2.5 text-slate-800 font-semibold focus:outline-none"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-600 block">Physical Map Coordinates / Location</label>
-                <input
-                  type="text"
-                  placeholder="e.g. King Fahd Branch Rd, Al Yasmin, Riyadh"
-                  value={newLocation}
-                  onChange={(e) => setNewLocation(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-250 rounded-lg p-2.5 text-slate-800 font-medium focus:outline-none"
-                  required
-                />
-              </div>
-
-              {/* Dynamic specifications structure (Tanks & Pumps) */}
-              <div className="border-t border-slate-150 pt-3 space-y-3">
-                <h4 className="text-xs font-black text-slate-700 uppercase tracking-tight">Configuration Specifications</h4>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="font-bold text-slate-600 block">Reservoir Tanks</label>
-                    <div className="flex items-center gap-1">
-                      <button 
-                        type="button" 
-                        onClick={() => handleTankCountChange(tankCount - 1)}
-                        className="w-7 h-7 rounded border border-slate-250 bg-slate-50 flex items-center justify-center font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50 text-xs"
-                        disabled={tankCount <= 1}
-                      >
-                        -
-                      </button>
-                      <span className="w-5 text-center font-mono font-bold text-slate-800 text-xs">{tankCount}</span>
-                      <button 
-                        type="button" 
-                        onClick={() => handleTankCountChange(tankCount + 1)}
-                        className="w-7 h-7 rounded border border-slate-250 bg-slate-50 flex items-center justify-center font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50 text-xs"
-                        disabled={tankCount >= 8}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="font-bold text-slate-600 block">Number of Dispensers</label>
-                    <div className="flex items-center gap-1">
-                      <button 
-                        type="button" 
-                        onClick={() => handleDispenserCountChange(dispenserCount - 1)}
-                        className="w-7 h-7 rounded border border-slate-250 bg-slate-50 flex items-center justify-center font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50 text-xs"
-                        disabled={dispenserCount <= 1}
-                      >
-                        -
-                      </button>
-                      <span className="w-5 text-center font-mono font-bold text-slate-800 text-xs">{dispenserCount}</span>
-                      <button 
-                        type="button" 
-                        onClick={() => handleDispenserCountChange(dispenserCount + 1)}
-                        className="w-7 h-7 rounded border border-slate-250 bg-slate-50 flex items-center justify-center font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50 text-xs"
-                        disabled={dispenserCount >= 6}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Dispensers Nozzle count selector */}
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
-                  <span className="text-[10px] uppercase font-black text-slate-500 block">Configure Dispenser Nozzles</span>
-                  <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                    {dispenserNozzles.map((nozzles, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-slate-150">
-                        <span className="font-bold text-slate-700">Dispenser {String(idx + 1).padStart(2, '0')}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-slate-400 font-semibold uppercase">Nozzles:</span>
-                          <div className="flex items-center gap-1">
-                            <button 
-                              type="button" 
-                              onClick={() => handleNozzleCountChange(idx, nozzles - 1)}
-                              className="w-6 h-6 rounded border border-slate-250 bg-slate-50 flex items-center justify-center font-bold text-slate-650 hover:bg-slate-100 disabled:opacity-50 text-xs"
-                              disabled={nozzles <= 1}
-                            >
-                              -
-                            </button>
-                            <span className="w-4 text-center font-mono font-bold text-slate-800 text-xs">{nozzles}</span>
-                            <button 
-                              type="button" 
-                              onClick={() => handleNozzleCountChange(idx, nozzles + 1)}
-                              className="w-6 h-6 rounded border border-slate-250 bg-slate-50 flex items-center justify-center font-bold text-slate-650 hover:bg-slate-100 disabled:opacity-50 text-xs"
-                              disabled={nozzles >= 4}
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Tanks list mini editor */}
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2 max-h-36 overflow-y-auto">
-                  <span className="text-[10px] uppercase font-black text-slate-500 block">Configure Reservoir Tanks</span>
-                  {tankConfigs.map((tc, index) => (
-                    <div key={index} className="flex items-center gap-2 bg-white p-2 rounded border border-slate-150 justify-between">
-                      <span className="font-bold text-slate-700 min-w-[50px]">{tc.label}</span>
-                      
-                      <div className="flex items-center gap-1.5">
-                        <select
-                          value={tc.fuelType}
-                          onChange={(e) => updateTankConfig(index, 'fuelType', e.target.value as FuelGrade)}
-                          className="bg-slate-50 border border-slate-200 rounded px-1.5 py-1 text-[11px] font-semibold text-slate-700 focus:outline-none"
-                        >
-                          <option value="GAS91">GAS91</option>
-                          <option value="GAS95">GAS95</option>
-                          <option value="GAS98">GAS98</option>
-                          <option value="DIESEL">DIESEL</option>
-                        </select>
-
-                        <div className="flex items-center gap-0.5">
-                          <input
-                            type="number"
-                            min="5000"
-                            max="100000"
-                            step="5000"
-                            value={tc.capacity}
-                            onChange={(e) => updateTankConfig(index, 'capacity', Number(e.target.value))}
-                            className="w-16 bg-slate-50 border border-slate-200 rounded p-1 text-[11px] font-semibold text-slate-800 focus:outline-none text-right"
-                          />
-                          <span className="text-[10px] text-slate-400 font-mono">L</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Pumps and Nozzles assignment list mini editor */}
-                <div className="bg-amber-50/50 border border-amber-200 rounded-lg p-3 space-y-2 max-h-36 overflow-y-auto">
-                  <span className="text-[10px] uppercase font-black text-amber-800 block">Configure Dispenser Pumps (Assign Fuel Types)</span>
-                  {pumpConfigs.map((pc, index) => (
-                    <div key={index} className="flex items-center gap-2 bg-white p-2 rounded border border-amber-100 justify-between">
-                      <div className="flex flex-col text-left">
-                        <span className="font-bold text-slate-700 text-[11px] leading-tight">{pc.label}</span>
-                        <span className="text-[9px] text-slate-400 font-medium">Dispenser {pc.dispenserNo}</span>
-                      </div>
-                      
-                      <select
-                        value={pc.fuelType}
-                        onChange={(e) => {
-                          const val = e.target.value as FuelGrade;
-                          setPumpConfigs(prev => prev.map((p, i) => i === index ? { ...p, fuelType: val } : p));
-                        }}
-                        className="bg-slate-50 border border-slate-200 rounded px-1.5 py-1 text-[11px] font-semibold text-slate-700 focus:outline-none"
-                      >
-                        <option value="GAS91">GAS91</option>
-                        <option value="GAS95">GAS95</option>
-                        <option value="GAS98">GAS98</option>
-                        <option value="DIESEL">DIESEL</option>
-                      </select>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Supervisor login credentials configuration box */}
-                <div className="bg-indigo-50/50 border border-indigo-100 rounded-lg p-3 space-y-2">
-                  <span className="text-[10px] uppercase font-black text-[#5c4ee3] block">Station Supervisor Portal Credentials</span>
-                  
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="font-bold text-slate-600 block text-[9px] uppercase tracking-wider">Supervisor Username</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. supervisor1"
-                        value={supervisorUsername}
-                        onChange={(e) => setSupervisorUsername(e.target.value.toLowerCase().replace(/\s+/g, ''))}
-                        className="w-full bg-white border border-slate-250 rounded p-2 text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="font-bold text-slate-600 block text-[9px] uppercase tracking-wider">Supervisor Password</label>
-                      <input
-                        type="text"
-                        placeholder="Password Code"
-                        value={supervisorPassword}
-                        onChange={(e) => setSupervisorPassword(e.target.value)}
-                        className="w-full bg-white border border-slate-250 rounded p-2 text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
-                        required
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Informative summary of auto seeding */}
-              <div className="bg-linear-to-tr from-slate-50 to-indigo-50 border border-indigo-100 rounded-lg p-3 text-[11px] text-slate-500 leading-normal font-semibold">
-                <Check size={12} className="text-emerald-600 inline mr-1" />
-                This will automatically seed **{tankCount} underground reservoirs** and **{dispenserCount} physical dispensers** housing **{pumpConfigs.length} custom-assigned nozzles** on the network.
-              </div>
-
-              <div className="flex items-center gap-3 pt-3 border-t border-slate-150 justify-end">
-                <button
-                  type="button"
-                  onClick={() => setShowWizard(false)}
-                  className="px-4 py-2 border border-slate-200 rounded-lg text-[#2d3748] font-bold text-xs"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white rounded-lg font-bold text-xs shadow-xs"
-                >
-                  Onboard Instance
-                </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* ========================================================= */}
+      {/* 5. SUPERVISOR ACCOUNTS DRAWER/MODAL */}
+      {/* ========================================================= */}
+      {showSupervisorRegistry && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl p-6 max-w-4xl w-full text-left max-h-[90vh] flex flex-col justify-between">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-150">
+              <div className="flex items-center gap-2">
+                <Shield className="text-[#6c5dd3]" size={18} />
+                <div>
+                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                    Supervisor Security Accounts List
+                  </h3>
+                  <span className="text-[10px] text-slate-450">Active logins mapped to Supabase database table `onboarded_users`</span>
+                </div>
+              </div>
+              <button onClick={() => setShowSupervisorRegistry(false)} className="text-slate-405 hover:text-slate-600 p-1">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto mt-4 border border-slate-150 rounded-lg">
+              {supabaseUsers.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 font-semibold bg-slate-55 text-xs">
+                  No active supervisor users detected.
+                </div>
+              ) : (
+                <table className="w-full text-left font-medium border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-150 text-slate-400 uppercase tracking-wider text-[9px] font-black">
+                      <th className="px-4 py-2">ID / Created At</th>
+                      <th className="px-4 py-2">Username</th>
+                      <th className="px-4 py-2">Passphrase Code</th>
+                      <th className="px-4 py-2">Manager / Affiliated Station</th>
+                      <th className="px-4 py-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-150 font-mono text-[11px] text-slate-700 bg-white">
+                    {supabaseUsers.map((user, idx) => (
+                      <tr key={user.id || idx} className="hover:bg-slate-50/50">
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          <div className="font-bold text-slate-800">{user.id}</div>
+                          <div className="text-[9px] text-slate-404">
+                            {user.created_at ? new Date(user.created_at).toLocaleDateString() : ''}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 font-bold text-indigo-700">{user.username}</td>
+                        <td className="px-4 py-2.5 text-rose-600 font-bold font-mono">{user.password_raw}</td>
+                        <td className="px-4 py-2.5 font-sans">
+                          <div className="font-semibold text-slate-800">{user.full_name}</div>
+                          <div className="text-[10px] text-slate-450">{user.station_name} ({user.station_code})</div>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className="inline-block px-2 py-0.5 rounded text-[8px] font-black bg-emerald-50 text-emerald-700 border border-emerald-100 uppercase">
+                            Active Sync
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end mt-4 pt-3 border-t border-slate-150">
+              <button
+                onClick={() => setShowSupervisorRegistry(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition-colors"
+              >
+                Close list
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

@@ -25,12 +25,12 @@ function MainLayout() {
 
   // Auto-redirect default tabs when the user switches their active gateway role profile context
   useEffect(() => {
-    if (session.role === 'SUPER_ADMIN' || session.role === 'ADMIN') {
+    if ((session.role === 'SUPER_ADMIN' || session.role === 'ADMIN' || session.role === 'VIEWER') && !session.isStationContext) {
       setCurrentTab('stations_directory');
     } else {
       setCurrentTab('tank_monitor');
     }
-  }, [session.role, session.activeStationId]);
+  }, [session.role, session.activeStationId, session.isStationContext]);
 
   // View router binder
   const renderActiveView = () => {

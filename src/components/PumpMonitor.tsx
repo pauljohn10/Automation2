@@ -70,6 +70,11 @@ export const PumpMonitor: React.FC = () => {
     setModalError(null);
     setSimResults(null);
 
+    if (session.role === 'VIEWER') {
+      setModalError('Access Denied: Read-only VIEWER profile cannot execute operations.');
+      return;
+    }
+
     if (!nozzleToConfigure) return;
 
     const price = activeStation?.fuelPricing[nozzleToConfigure.fuelType] || 2.18;
@@ -81,15 +86,20 @@ export const PumpMonitor: React.FC = () => {
 
     const finalVol = finalAmount / price;
 
-    // Double check stock bounds on client side to show responsive feedback
-    const tankForNozzle = stationTanks.find(t => t.fuelType === nozzleToConfigure.fuelType);
-    if (!tankForNozzle) {
+    // Double check stock bounds on client side to show responsive feedback by summing up all tanks of this grade
+    const tanksForNozzle = stationTanks
+      .filter(t => t.fuelType === nozzleToConfigure.fuelType)
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
+
+    if (tanksForNozzle.length === 0) {
       setModalError(`No active storage tank configured for ${nozzleToConfigure.fuelType} at this station.`);
       return;
     }
 
-    if (tankForNozzle.currentLevel < finalVol) {
-      setModalError(`Insufficient fuel stock available! For SAR ${finalAmount.toFixed(2)}, we need to dispense ${finalVol.toFixed(2)} L, but stock is currently at ${tankForNozzle.currentLevel.toLocaleString()} Litres.`);
+    const totalStock = tanksForNozzle.reduce((sum, t) => sum + t.currentLevel, 0);
+
+    if (totalStock < finalVol) {
+      setModalError(`Insufficient fuel stock available! For SAR ${finalAmount.toFixed(2)}, we need to dispense ${finalVol.toFixed(2)} L, but total stock across matched tanks is currently at ${totalStock.toLocaleString()} Litres.`);
       return;
     }
 
@@ -104,6 +114,10 @@ export const PumpMonitor: React.FC = () => {
 
   const handleNozzleClick = (nozzleId: string, fuelType: FuelGrade, status: 'IDLE' | 'PUMPING' | 'COMPLETED' | 'MAINTENANCE') => {
     setSimResults(null);
+    if (session.role === 'VIEWER') {
+      alert('Access Denied: Read-only VIEWER profile cannot execute operations.');
+      return;
+    }
     if (status === 'IDLE') {
       const finalVol = customVolume ? parseFloat(customVolume) : volumeToDispense;
       const vol = isNaN(finalVol) || finalVol <= 0 ? 35 : finalVol;

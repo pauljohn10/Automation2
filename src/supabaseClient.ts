@@ -96,8 +96,12 @@ export function enrichNetworkErrorMessage(msg: string, url: string): string {
     lowercaseMsg.includes('fetcherror') || 
     lowercaseMsg.includes('networkerror') || 
     lowercaseMsg.includes('err_name_not_resolved') ||
-    lowercaseMsg.includes('dns')
+    lowercaseMsg.includes('dns') ||
+    lowercaseMsg.includes('load failed')
   ) {
+    if (url && (url.includes('localhost') || url.includes('127.0.0.1'))) {
+      return `Local Database Connection Failure! The system was unable to contact your local Supabase instance at "${url}". Please ensure that you have started your local Supabase containers (run "supabase start" in your terminal) and that they are listening on the correct port.`;
+    }
     return `Network/DNS Resolution Failure! The system was unable to resolve or contact your custom Supabase host URL ("${url}"). Please verify that your internet is active, you didn't introduce a typo in the database config, and that your Supabase project isn't paused or deleted.`;
   }
   return msg;
@@ -617,40 +621,96 @@ export async function provisionUserAccount(
   }
 
   try {
+    let newUserId = '';
+
     // Tier 1: Auth Create User using Admin context
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email: email,
       password: pass,
-      email_confirm: true
+      email_confirm: true,
+      user_metadata: { role: role }
     });
 
     if (authError) {
-      console.error('[Supabase Admin Auth] Failed to create auth user:', authError);
-      return { success: false, message: `Auth creation failed: ${authError.message}`, error: authError };
-    }
+      // Check if user already exists in auth
+      const isAlreadyExists = 
+        authError.message.toLowerCase().includes('already exists') || 
+        authError.message.toLowerCase().includes('email_exists') ||
+        authError.status === 422;
 
-    if (!authData?.user) {
-      return { success: false, message: 'Auth creation completed but returned no user payload.' };
-    }
-
-    const newUserId = authData.user.id;
-
-    // Tier 2: Write match row inside public.user_profiles
-    const { error: profileError } = await adminClient
-      .from('user_profiles')
-      .insert([
-        {
-          id: newUserId,
-          email: email,
-          role: role
+      if (isAlreadyExists) {
+        console.log('[Supabase Admin Auth] User already exists in auth, searching for existing ID...');
+        const { data: listData, error: listError } = await adminClient.auth.admin.listUsers();
+        if (!listError && listData?.users) {
+          const matched = (listData.users as any[]).find(u => u && u.email && String(u.email).toLowerCase() === email.toLowerCase());
+          if (matched) {
+            newUserId = matched.id;
+            // Align metadata role on auth side as well
+            await adminClient.auth.admin.updateUserById(newUserId, {
+              user_metadata: { role: role }
+            });
+          }
         }
-      ]);
+      }
+
+      if (!newUserId) {
+        console.error('[Supabase Admin Auth] Failed to create auth user:', authError);
+        return { success: false, message: `Auth creation failed: ${authError.message}`, error: authError };
+      }
+    } else {
+      if (!authData?.user) {
+        return { success: false, message: 'Auth creation completed but returned no user payload.' };
+      }
+      newUserId = authData.user.id;
+    }
+
+    // Tier 2: Write/Upsert match row inside public.user_profiles
+    let profileError = null;
+    try {
+      const { error } = await adminClient
+        .from('user_profiles')
+        .upsert([
+          {
+            id: newUserId,
+            email: email,
+            role: role
+          }
+        ]);
+      profileError = error;
+    } catch (err: any) {
+      profileError = err;
+    }
+
+    // Fallback: If service role client failed (e.g. due to key mismatch or RLS checking auth.uid() which is null for service role),
+    // try inserting/upserting using the active user's authenticated client session, as they are a SUPER_ADMIN.
+    if (profileError) {
+      console.warn('[Supabase Admin Auth] Admin client insert/upsert failed, attempting fallback with user session client:', profileError);
+      try {
+        const userClient = getSupabaseClient();
+        const { error: userClientErr } = await userClient
+          .from('user_profiles')
+          .upsert([
+            {
+              id: newUserId,
+              email: email,
+              role: role
+            }
+          ]);
+        if (!userClientErr) {
+          profileError = null; // Succeeded! Clear error
+        } else {
+          profileError = userClientErr; // Fallback failed too, keep the fallback error
+        }
+      } catch (fallbackErr: any) {
+        profileError = fallbackErr;
+      }
+    }
 
     if (profileError) {
-      console.error('[Supabase Admin Auth] Created auth entry, but table user_profiles insert failed:', profileError);
+      console.error('[Supabase Admin Auth] Created/matched auth entry, but table user_profiles insert/upsert failed:', profileError);
       return {
         success: false,
-        message: `Auth user created (${newUserId}), but profile table row insert failed: ${profileError.message}`,
+        message: `Auth user created/matched (${newUserId}), but profile table row insert/upsert failed: ${profileError.message || String(profileError)}`,
         error: profileError
       };
     }
@@ -658,7 +718,7 @@ export async function provisionUserAccount(
     return {
       success: true,
       message: `Successfully provisioned ${role} account for "${email}"!`,
-      data: authData.user
+      data: { id: newUserId }
     };
   } catch (err: any) {
     console.error('[Supabase Admin Auth] Exception during account provisioning:', err);

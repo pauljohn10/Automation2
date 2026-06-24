@@ -70,7 +70,7 @@ export const TankMonitor: React.FC = () => {
   const [simulatedTemps, setSimulatedTemps] = useState<Record<string, number>>({});
 
   // Active authenticated fuel station account session info
-  const activeStationAccount = session.role === 'STATION_ADMIN' ? { id: session.activeStationId } : null;
+  const activeStationAccount = (session.role === 'STATION_ADMIN' || session.role === 'OPERATOR') ? { id: session.activeStationId } : null;
 
   // Filter tanks for current station
   const stationTanks = tanks.filter(t => t.stationId === session.activeStationId);
@@ -154,8 +154,8 @@ export const TankMonitor: React.FC = () => {
 
   // Handler for tank click (Rule 2)
   const handleTankClick = (tank: FuelTank) => {
-    if (session.role === 'VIEWER') {
-      alert('Access Denied: Read-only VIEWER profile cannot configure tank telemetry.');
+    if (session.role === 'VIEWER' || session.role === 'OPERATOR') {
+      alert('Access Denied: You do not have permission to configure tank telemetry.');
       return;
     }
     const currentId = tank.stationId;
@@ -171,6 +171,11 @@ export const TankMonitor: React.FC = () => {
   const handleSaveChanges = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTankId) return;
+
+    if (session.role === 'VIEWER' || session.role === 'OPERATOR') {
+      setValidationError('Access Denied: You do not have permission to configure tank telemetry.');
+      return;
+    }
 
     const numValue = parseFloat(inputValue);
     // Frontend validation: value must not be less than 0 and cannot exceed 45000 Liters
@@ -224,7 +229,7 @@ export const TankMonitor: React.FC = () => {
 
           // Render click border states strictly for verified fuel station account operator
           const currentStationId = tank.stationId;
-          const isAuthorized = activeStationAccount !== null && activeStationAccount.id === currentStationId && session.role !== 'VIEWER';
+          const isAuthorized = activeStationAccount !== null && activeStationAccount.id === currentStationId && session.role !== 'VIEWER' && session.role !== 'OPERATOR';
           const isHighlighted = tank.label === 'Tank 02';
 
           return (
@@ -345,13 +350,13 @@ export const TankMonitor: React.FC = () => {
                   <button 
                     onClick={(e) => {
                       e.stopPropagation(); // prevent opening configuration modal on click
-                      if (session.role === 'VIEWER') {
-                        alert('Access Denied: Read-only VIEWER profile cannot initiate moisture purges.');
+                      if (session.role === 'VIEWER' || session.role === 'OPERATOR') {
+                        alert('Access Denied: You do not have permission to initiate moisture purges.');
                         return;
                       }
                       resetTankWater(tank.id);
                     }}
-                    disabled={session.role === 'VIEWER'}
+                    disabled={session.role === 'VIEWER' || session.role === 'OPERATOR'}
                     className="text-[10px] font-black text-amber-900 bg-amber-200 hover:bg-amber-300 px-2 py-1 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Purge Water
@@ -589,7 +594,7 @@ export const TankMonitor: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSaving || session.role === 'VIEWER'}
+                  disabled={isSaving || session.role === 'VIEWER' || session.role === 'OPERATOR'}
                   className="flex-1 text-xs font-black text-white bg-indigo-600 hover:bg-indigo-700 py-2.5 px-4 rounded-lg shadow-sm transition-all duration-200 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSaving ? (

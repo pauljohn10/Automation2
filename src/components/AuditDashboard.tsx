@@ -8,7 +8,21 @@ import { useFuelSystem } from '../context';
 import { Search, ShieldAlert, Cpu, Calendar, AlertOctagon } from 'lucide-react';
 
 export const AuditDashboard: React.FC = () => {
-  const { auditLogs, stations } = useFuelSystem();
+  const { auditLogs, stations, session } = useFuelSystem();
+
+  // Protect view - only accessible to SUPER_ADMIN, ADMIN, or VIEWER
+  const isHQUser = session.role === 'SUPER_ADMIN' || session.role === 'ADMIN' || session.role === 'VIEWER';
+  if (!isHQUser) {
+    return (
+      <div className="p-8 text-center bg-slate-50 min-h-[calc(100vh-64px)] font-sans flex flex-col items-center justify-center text-left">
+        <ShieldAlert size={48} className="text-red-500 mb-3" />
+        <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Access Denied</h3>
+        <p className="text-xs text-slate-500 mt-1 max-w-md leading-relaxed">
+          The requested audit log ledger is locked and reserved strictly for authorized Central HQ Workspace accounts.
+        </p>
+      </div>
+    );
+  }
 
   // Filter inputs
   const [searchVal, setSearchVal] = useState('');

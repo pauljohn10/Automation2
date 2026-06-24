@@ -17,7 +17,7 @@ export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
 
   const origRole = session.originalRole || session.role;
   const userRole = origRole;
-  const isHQUser = userRole === 'SUPER_ADMIN' || userRole === 'ADMIN';
+  const isHQUser = userRole === 'SUPER_ADMIN' || userRole === 'ADMIN' || userRole === 'VIEWER';
 
   useEffect(() => {
     // Exact format clock e.g. "6/10/2026 | 2:16:25 PM"
@@ -34,27 +34,29 @@ export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
 
   const handleRoleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
-    if (val === 'SUPER_ADMIN' || val === 'ADMIN') {
+    if (val === 'SUPER_ADMIN' || val === 'ADMIN' || val === 'VIEWER') {
       // Switch back to master corporate HQ workspace
       setSession({
         role: val as any,
         name: session.name,
         activeStationId: session.activeStationId || (stations[0]?.id || 'st-01'),
         isLoggedIn: true,
-        originalRole: val as any
+        originalRole: val as any,
+        isStationContext: false
       });
     } else if (val.startsWith('STATION_')) {
       const targetStationId = val.replace('STATION_', '');
       const selectedStation = stations.find(s => s.id === targetStationId);
       if (selectedStation) {
         // HQ admins map to local STATION_ADMIN context, viewers map to VIEWERS on that station
-        const targetRole = isHQUser ? 'STATION_ADMIN' : 'VIEWER';
+        const targetRole = (origRole === 'VIEWER') ? 'VIEWER' : 'STATION_ADMIN';
         setSession({
           role: targetRole,
-          name: isHQUser ? (selectedStation.manager || 'Station Admin') : session.name,
+          name: (origRole === 'VIEWER') ? session.name : (selectedStation.manager || 'Station Admin'),
           activeStationId: selectedStation.id,
           isLoggedIn: true,
-          originalRole: origRole
+          originalRole: origRole,
+          isStationContext: true
         });
       }
     }
@@ -76,7 +78,7 @@ export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
         </span>
         
         {/* If Station Admin / Operator, show current isolated view station */}
-        {session.role !== 'SUPER_ADMIN' && session.role !== 'ADMIN' && (
+        {session.isStationContext && (
           <div className="flex items-center gap-1 text-xs text-[#718096]">
             <Layers size={14} className="text-[#6c5dd3]" />
             <span>Station context:</span>
@@ -107,7 +109,7 @@ export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
               Role Gateway:
             </div>
             <select 
-              value={session.role === 'SUPER_ADMIN' || session.role === 'ADMIN' ? session.role : `STATION_${session.activeStationId}`}
+              value={session.isStationContext ? `STATION_${session.activeStationId}` : session.role}
               onChange={handleRoleChange}
               className="text-xs bg-white border border-[#c3cce2] rounded px-2 py-1 font-medium text-[#2d3748] focus:outline-none focus:ring-1 focus:ring-[#6c5dd3]"
             >
@@ -117,6 +119,9 @@ export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
               {origRole === 'ADMIN' && (
                 <option value="ADMIN">HQ Corporate Admin (Access All)</option>
               )}
+              {origRole === 'VIEWER' && (
+                <option value="VIEWER">HQ Corporate Viewer (Access All)</option>
+              )}
               {stations.map(st => (
                 <option key={st.id} value={`STATION_${st.id}`}>
                   {st.manager || 'Station Admin'} ({st.name})
@@ -125,7 +130,7 @@ export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
             </select>
 
             {/* Quick active station switcher (HQ view context) */}
-            {(session.role === 'SUPER_ADMIN' || session.role === 'ADMIN') && (
+            {(session.role === 'SUPER_ADMIN' || session.role === 'ADMIN' || session.role === 'VIEWER') && !session.isStationContext && (
               <div className="flex items-center gap-1 pl-1 border-l border-[#cbd5e1]">
                 <select
                   value={session.activeStationId}
@@ -152,6 +157,8 @@ export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
                 ? 'HQ ADMIN' 
                 : session.role === 'VIEWER' 
                 ? 'VIEWER (READ-ONLY)' 
+                : session.role === 'OPERATOR'
+                ? 'STATION OPERATOR'
                 : 'STATION ADMIN'}
             </div>
           </div>

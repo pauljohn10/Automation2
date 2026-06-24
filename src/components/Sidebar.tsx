@@ -32,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
   const { session, activeStation, setSession } = useFuelSystem();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  const isHQ = session.role === 'SUPER_ADMIN' || session.role === 'ADMIN';
+  const isHQ = (session.role === 'SUPER_ADMIN' || session.role === 'ADMIN' || session.role === 'VIEWER') && !session.isStationContext;
 
   // Choose branding text and subtext based on current role context
   const mainBranding = isHQ ? 'SAAS ERP' : (activeStation?.name.split('-')[0].trim() || 'STATION');
@@ -91,7 +91,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
                   {session.name}
                 </div>
                 <span className="inline-block text-[9px] font-black tracking-widest text-[#6c5dd3] bg-[#eeebfe] px-1.5 py-0.5 rounded uppercase mt-0.5 truncate">
-                  {session.role === 'SUPER_ADMIN' ? 'SUPER ADMIN' : session.role === 'ADMIN' ? 'HQ ADMIN' : session.role === 'VIEWER' ? 'VIEWER (READ-ONLY)' : 'SUPERVISOR'}
+                  {session.role === 'SUPER_ADMIN' 
+                    ? 'SUPER ADMIN' 
+                    : session.role === 'ADMIN' 
+                    ? 'HQ ADMIN' 
+                    : session.role === 'VIEWER' 
+                    ? 'VIEWER (READ-ONLY)' 
+                    : session.role === 'OPERATOR'
+                    ? 'STATION OPERATOR'
+                    : 'STATION SUPERVISOR'}
                 </span>
               </div>
             )}
@@ -141,35 +149,39 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
                 {!isSidebarCollapsed && <span className="animate-fade-in">Integrated Performance</span>}
               </button>
 
-              <button
-                onClick={() => setCurrentTab('global_audit_trail')}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
-                  isSidebarCollapsed ? 'justify-center py-2.5' : ''
-                } ${
-                  currentTab === 'global_audit_trail'
-                    ? 'bg-[#efecfe] text-[#6c5dd3]'
-                    : 'text-[#4a5568] hover:bg-[#f7fafc]'
-                }`}
-                title={isSidebarCollapsed ? "Global Audit Logs" : undefined}
-              >
-                <FileText size={16} className="shrink-0" />
-                {!isSidebarCollapsed && <span className="animate-fade-in">Global Audit Logs</span>}
-              </button>
+              {(session.role === 'SUPER_ADMIN' || session.role === 'ADMIN' || session.role === 'VIEWER') && (
+                <>
+                  <button
+                    onClick={() => setCurrentTab('global_audit_trail')}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                      isSidebarCollapsed ? 'justify-center py-2.5' : ''
+                    } ${
+                      currentTab === 'global_audit_trail'
+                        ? 'bg-[#efecfe] text-[#6c5dd3]'
+                        : 'text-[#4a5568] hover:bg-[#f7fafc]'
+                    }`}
+                    title={isSidebarCollapsed ? "Global Audit Logs" : undefined}
+                  >
+                    <FileText size={16} className="shrink-0" />
+                    {!isSidebarCollapsed && <span className="animate-fade-in">Global Audit Logs</span>}
+                  </button>
 
-              <button
-                onClick={() => setCurrentTab('user_management')}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
-                  isSidebarCollapsed ? 'justify-center py-2.5' : ''
-                } ${
-                  currentTab === 'user_management'
-                    ? 'bg-[#efecfe] text-[#6c5dd3]'
-                    : 'text-[#4a5568] hover:bg-[#f7fafc]'
-                }`}
-                title={isSidebarCollapsed ? "User Access Portal" : undefined}
-              >
-                <Users size={16} className="shrink-0" />
-                {!isSidebarCollapsed && <span className="animate-fade-in">User Access Portal</span>}
-              </button>
+                  <button
+                    onClick={() => setCurrentTab('user_management')}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                      isSidebarCollapsed ? 'justify-center py-2.5' : ''
+                    } ${
+                      currentTab === 'user_management'
+                        ? 'bg-[#efecfe] text-[#6c5dd3]'
+                        : 'text-[#4a5568] hover:bg-[#f7fafc]'
+                    }`}
+                    title={isSidebarCollapsed ? "User Access Portal" : undefined}
+                  >
+                    <Users size={16} className="shrink-0" />
+                    {!isSidebarCollapsed && <span className="animate-fade-in">User Access Portal</span>}
+                  </button>
+                </>
+              )}
             </>
           ) : (
             /* Station Operator Tabs */
@@ -234,20 +246,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
                 {!isSidebarCollapsed && <span className="animate-fade-in">Show Prices Index</span>}
               </button>
 
-              <button
-                onClick={() => setCurrentTab('admin_override')}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
-                  isSidebarCollapsed ? 'justify-center py-2.5' : ''
-                } ${
-                  currentTab === 'admin_override'
-                    ? 'bg-[#efecfe] text-[#6c5dd3]'
-                    : 'text-[#4a5568] hover:bg-[#f7fafc]'
-                }`}
-                title={isSidebarCollapsed ? "Admin Override Tools" : undefined}
-              >
-                <Wrench size={16} className="shrink-0" />
-                {!isSidebarCollapsed && <span className="animate-fade-in">Admin Override Tools</span>}
-              </button>
+              {session.role !== 'OPERATOR' && session.role !== 'VIEWER' && (
+                <button
+                  onClick={() => setCurrentTab('admin_override')}
+                  className={`w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                    isSidebarCollapsed ? 'justify-center py-2.5' : ''
+                  } ${
+                    currentTab === 'admin_override'
+                      ? 'bg-[#efecfe] text-[#6c5dd3]'
+                      : 'text-[#4a5568] hover:bg-[#f7fafc]'
+                  }`}
+                  title={isSidebarCollapsed ? "Admin Override Tools" : undefined}
+                >
+                  <Wrench size={16} className="shrink-0" />
+                  {!isSidebarCollapsed && <span className="animate-fade-in">Admin Override Tools</span>}
+                </button>
+              )}
             </>
           )}
         </div>

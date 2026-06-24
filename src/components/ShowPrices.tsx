@@ -32,6 +32,11 @@ export const ShowPrices: React.FC = () => {
 
     if (!editingGrade) return;
 
+    if (session.role === 'VIEWER' || session.role === 'OPERATOR') {
+      setErrorMsg('Access Denied: You do not have permission to adjust prices.');
+      return;
+    }
+
     const parsedPrice = parseFloat(newPriceVal);
     if (isNaN(parsedPrice) || parsedPrice <= 0) {
       setErrorMsg('Price must be a valid positive index value.');
@@ -138,10 +143,10 @@ export const ShowPrices: React.FC = () => {
             </p>
           </div>
 
-          {session.role === 'VIEWER' && (
+          {(session.role === 'VIEWER' || session.role === 'OPERATOR') && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-amber-950 font-bold text-xs flex items-center gap-2">
               <ShieldAlert size={16} className="text-amber-600 shrink-0" />
-              <span>Read-only VIEWER: You are authorized to monitor totem index boards but cannot modify pricing nodes.</span>
+              <span>Restricted Access: You are authorized to monitor totem index boards but cannot modify pricing nodes.</span>
             </div>
           )}
 
@@ -153,8 +158,8 @@ export const ShowPrices: React.FC = () => {
                   <button
                     key={grade}
                     onClick={() => {
-                      if (session.role === 'VIEWER') {
-                        alert('Access Denied: Read-only VIEWER profile cannot configure pricing totems.');
+                      if (session.role === 'VIEWER' || session.role === 'OPERATOR') {
+                        alert('Access Denied: You do not have permission to configure pricing totems.');
                         return;
                       }
                       setEditingGrade(grade);
@@ -162,7 +167,7 @@ export const ShowPrices: React.FC = () => {
                       setSuccessMsg('');
                       setErrorMsg('');
                     }}
-                    disabled={session.role === 'VIEWER'}
+                    disabled={session.role === 'VIEWER' || session.role === 'OPERATOR'}
                     className="p-2.5 rounded-lg border border-slate-200 text-xs font-bold hover:bg-slate-50 text-slate-700 bg-white transition-all text-center flex items-center justify-between disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     <span>{grade}</span>

@@ -15,7 +15,7 @@ export const ReportDashboard: React.FC = () => {
   const [selectedGradeFilter, setSelectedGradeFilter] = useState<string>('ALL');
   const [timeRange, setTimeRange] = useState<'TODAY' | 'WEEK' | 'MONTH'>('TODAY');
 
-  const isHQ = session.role === 'SUPER_ADMIN';
+  const isHQ = (session.role === 'SUPER_ADMIN' || session.role === 'ADMIN' || session.role === 'VIEWER') && !session.isStationContext;
 
   // Filter transaction records by context (global for HQ vs localized for single station)
   const contextTx = transactions.filter(tx => {

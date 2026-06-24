@@ -1,6 +1,1 @@
-{
-  "name": "Multi-Station Fuel Management System",
-  "description": "An enterprise-grade ERP platform for multi-station fuel networks, featuring centralized HQ analytics, real-time tank hardware monitoring, automated auditing, and sales simulation.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
+{"name":"Multi-Station Fuel Management System","description":"An enterprise-grade ERP platform for multi-station fuel networks, featuring centralized HQ analytics, real-time tank hardware monitoring, automated auditing, and sales simulation.","requestFramePermissions":[],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}

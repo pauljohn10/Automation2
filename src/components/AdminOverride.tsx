@@ -29,8 +29,8 @@ export const AdminOverride: React.FC = () => {
     e.preventDefault();
     setReplenishMsg(null);
 
-    if (session.role === 'VIEWER') {
-      setReplenishMsg({ status: 'error', text: 'Access Denied: Read-only VIEWER profile cannot trigger fuel delivery simulations.' });
+    if (session.role === 'VIEWER' || session.role === 'OPERATOR') {
+      setReplenishMsg({ status: 'error', text: 'Access Denied: You do not have permission to trigger fuel delivery simulations.' });
       return;
     }
 
@@ -48,8 +48,8 @@ export const AdminOverride: React.FC = () => {
   };
 
   const handleFactoryReset = () => {
-    if (session.role === 'VIEWER') {
-      alert('Access Denied: VIEWER role cannot perform factory resets.');
+    if (session.role !== 'SUPER_ADMIN') {
+      alert('Access Denied: Only SUPER_ADMIN accounts can perform factory resets.');
       return;
     }
     if (window.confirm('WARNING: This will purge all transaction modifications, newly created tenant stations, and local totem variables. Restore master factory seeding?')) {
@@ -111,7 +111,7 @@ export const AdminOverride: React.FC = () => {
                     key={litres}
                     type="button"
                     onClick={() => setDeliveryL(litres)}
-                    disabled={session.role === 'VIEWER'}
+                    disabled={session.role === 'VIEWER' || session.role === 'OPERATOR'}
                     className={`p-2 rounded-lg border text-xs font-bold font-mono transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                       deliveryL === litres
                         ? 'bg-[#6c5dd3] text-white border-[#6c5dd3]'
@@ -126,7 +126,7 @@ export const AdminOverride: React.FC = () => {
 
             <button
               type="submit"
-              disabled={session.role === 'VIEWER'}
+              disabled={session.role === 'VIEWER' || session.role === 'OPERATOR'}
               className="w-full bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white p-2.5 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 font-sans disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Truck size={14} />
@@ -170,14 +170,14 @@ export const AdminOverride: React.FC = () => {
                 </div>
                 <button
                   onClick={() => {
-                    if (session.role === 'VIEWER') {
-                      alert('Access Denied: Read-only VIEWER profile cannot initiate sensor moisture purges.');
+                    if (session.role === 'VIEWER' || session.role === 'OPERATOR') {
+                      alert('Access Denied: You do not have permission to initiate sensor moisture purges.');
                       return;
                     }
                     resetTankWater(tank.id);
                     alert(`Purge triggered for ${tank.label}. Sensor water level reset to 0.00m.`);
                   }}
-                  disabled={session.role === 'VIEWER'}
+                  disabled={session.role === 'VIEWER' || session.role === 'OPERATOR'}
                   className="px-3 py-1.5 bg-white border border-slate-200 rounded-md text-[10px] text-slate-700 font-black hover:bg-slate-50 transition-colors shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Purge Sensor moisture
@@ -195,7 +195,7 @@ export const AdminOverride: React.FC = () => {
             </p>
             <button
               onClick={handleFactoryReset}
-              disabled={session.role === 'VIEWER'}
+              disabled={session.role !== 'SUPER_ADMIN'}
               className="px-4 py-2 bg-red-100 hover:bg-red-200 border border-red-200 text-red-800 rounded-lg text-xs font-black transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw size={14} />
