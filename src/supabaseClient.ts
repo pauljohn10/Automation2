@@ -574,8 +574,40 @@ export interface SupabaseUserProfile {
 
 export function getSupabaseServiceRoleKey(): string | null {
   const defaultServiceRole = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnc21paXJiYXFnZXRuc2pidmdsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTA4MTYwNywiZXhwIjoyMDk2NjU3NjA3fQ.koZpd7L7PTxa09iZP_uLQaoEVotBeXhH-72eFWq2qXE';
+  
+  // 1. Check if user provided an override service role key
+  const localServiceRole = localStorage.getItem('supabase_service_role_override');
+  if (localServiceRole && localServiceRole.trim()) {
+    return localServiceRole.trim();
+  }
+
+  // Get active URL
+  const config = getSupabaseConfig();
+  const activeUrl = config.url;
+
+  // 2. Check if active URL matches the env VITE_SUPABASE_URL
   // @ts-ignore
-  return localStorage.getItem('supabase_service_role_override') || import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || defaultServiceRole;
+  const envUrl = import.meta.env.VITE_SUPABASE_URL;
+  // @ts-ignore
+  const envServiceRole = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+  if (envUrl && activeUrl && envUrl.trim().toLowerCase() === activeUrl.trim().toLowerCase()) {
+    if (envServiceRole && envServiceRole.trim()) {
+      return envServiceRole.trim();
+    }
+  }
+
+  // 3. Check if active URL matches the default URL or corrected default URL
+  const defaultUrl = 'https://cgsmiirbaqgetnsjbvgl.supabase.co';
+  const correctedDefaultUrl = 'https://cgsmiirbaqgetnsjbugl.supabase.co';
+  if (activeUrl && (
+    activeUrl.trim().toLowerCase() === defaultUrl.toLowerCase() ||
+    activeUrl.trim().toLowerCase() === correctedDefaultUrl.toLowerCase()
+  )) {
+    return defaultServiceRole;
+  }
+
+  // 4. Otherwise, do not supply a service role key to avoid signature verification mismatch
+  return null;
 }
 
 let activeAdminClient: SupabaseClient | null = null;
