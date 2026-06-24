@@ -173,13 +173,64 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             return Array.from(mergedMap.values());
           };
 
-          mergedStations = mergeLists(stations, dbStations);
+          const mergeStations = (localList: FuelStation[], dbList: FuelStation[]): FuelStation[] => {
+            const mergedMap = new Map<string, FuelStation>();
+            dbList.forEach(item => mergedMap.set(item.code.toLowerCase(), item));
+            localList.forEach(item => {
+              const existing = mergedMap.get(item.code.toLowerCase());
+              if (existing) {
+                mergedMap.set(item.code.toLowerCase(), {
+                  ...item,
+                  id: existing.id
+                });
+              } else {
+                mergedMap.set(item.code.toLowerCase(), item);
+              }
+            });
+            return Array.from(mergedMap.values());
+          };
+
+          const mergeOnboardedUsers = (localList: SupabaseUserRecord[], dbList: SupabaseUserRecord[]): SupabaseUserRecord[] => {
+            const mergedMap = new Map<string, SupabaseUserRecord>();
+            dbList.forEach(item => mergedMap.set(item.username.toLowerCase(), item));
+            localList.forEach(item => {
+              const existing = mergedMap.get(item.username.toLowerCase());
+              if (existing) {
+                mergedMap.set(item.username.toLowerCase(), {
+                  ...item,
+                  id: existing.id
+                });
+              } else {
+                mergedMap.set(item.username.toLowerCase(), item);
+              }
+            });
+            return Array.from(mergedMap.values());
+          };
+
+          const mergeUserProfiles = (localList: SupabaseUserProfile[], dbList: SupabaseUserProfile[]): SupabaseUserProfile[] => {
+            const mergedMap = new Map<string, SupabaseUserProfile>();
+            dbList.forEach(item => mergedMap.set(item.email.toLowerCase(), item));
+            localList.forEach(item => {
+              const existing = mergedMap.get(item.email.toLowerCase());
+              if (existing) {
+                mergedMap.set(item.email.toLowerCase(), {
+                  ...item,
+                  id: existing.id
+                });
+              } else {
+                mergedMap.set(item.email.toLowerCase(), item);
+              }
+            });
+            return Array.from(mergedMap.values());
+          };
+
+          mergedStations = mergeStations(stations, dbStations);
           mergedTanks = mergeLists(tanks, dbTanks || []);
           mergedPumps = mergeLists(pumps, dbPumps || []);
           mergedTransactions = mergeLists(transactions, dbTransactions || []);
           mergedAudits = mergeLists(auditLogs, dbAudits || []);
-          mergedOnboarded = mergeLists(localOnboardedUsers, dbOnboarded || []);
-          mergedProfiles = mergeLists(localUserProfiles, dbProfiles || []);
+          mergedOnboarded = mergeOnboardedUsers(localOnboardedUsers, dbOnboarded || []);
+          mergedProfiles = mergeUserProfiles(localUserProfiles, dbProfiles || []);
         }
       } else {
         // DB is empty, push local state to seed it
@@ -284,17 +335,16 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     ];
     setPumps(prev => [...prev, ...newPumps]);
 
-    addCustomAuditLog(
-      'STATION_CREATE',
-      `Registered new SaaS enterprise tenant station "${station.name}" with ${stationTanks.length} storage tanks and ${newPumps.length} dispenser pumps.`,
-      station.id
-    );
-
     // Push entities to Supabase sequentially in background to conform with Foreign Key constraints
     return onboardStationWithAssets(station, stationTanks, newPumps)
       .then((res) => {
         if (res.success) {
           console.log(`[Supabase Onboarding Master Sync] Successfully provisioned Station "${station.name}", and synchronized its child Tanks and Pumps with the backend DB.`);
+          addCustomAuditLog(
+            'STATION_CREATE',
+            `Registered new SaaS enterprise tenant station "${station.name}" with ${stationTanks.length} storage tanks and ${newPumps.length} dispenser pumps.`,
+            station.id
+          );
         } else {
           console.error('[Supabase Onboarding Master Sync] Failed to sync child assets:', res.error);
         }
@@ -318,7 +368,7 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     addCustomAuditLog(
       'STATION_DELETION',
       `Permanently deleted fuel station "${stationName}" and terminated all associated tanks, pumps, and supervisor accounts.`,
-      stationId
+      undefined
     );
 
     try {
