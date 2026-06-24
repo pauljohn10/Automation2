@@ -807,20 +807,34 @@ export async function syncAllDataBulk(payload: {
   try {
     // 1. Sync stations
     if (payload.stations.length > 0) {
-      const stationPayloads = payload.stations.map(s => ({
-        id: s.id,
-        name: s.name,
-        code: s.code,
-        location: s.location,
-        manager: s.manager,
-        status: s.status,
-        fuelPricing: s.fuelPricing,
-        username: s.username || null,
-        password: s.password || null,
-        dispenserCount: s.dispenserCount || 2,
-        pumpsPerDispenser: s.pumpsPerDispenser || 2
-      }));
-      const { error } = await client.from('stations').upsert(stationPayloads);
+      const { data: currentDbStations } = await client.from('stations').select('id, code');
+      const dbStationMap = new Map<string, string>();
+      if (currentDbStations) {
+        currentDbStations.forEach(s => dbStationMap.set(s.code.toLowerCase(), s.id));
+      }
+
+      const stationPayloads = payload.stations.map(s => {
+        const matchedDbId = dbStationMap.get(s.code.toLowerCase());
+        return {
+          id: matchedDbId || s.id,
+          name: s.name,
+          code: s.code,
+          location: s.location,
+          manager: s.manager,
+          status: s.status,
+          fuelPricing: s.fuelPricing,
+          username: s.username || null,
+          password: s.password || null,
+          dispenserCount: s.dispenserCount || 2,
+          pumpsPerDispenser: s.pumpsPerDispenser || 2
+        };
+      });
+
+      const uniqueStationsMap = new Map<string, any>();
+      stationPayloads.forEach(p => uniqueStationsMap.set(p.code.toLowerCase(), p));
+      const finalPayloads = Array.from(uniqueStationsMap.values());
+
+      const { error } = await client.from('stations').upsert(finalPayloads);
       if (error) throw new Error(`Stations sync failed: ${error.message}`);
     }
 
@@ -896,28 +910,56 @@ export async function syncAllDataBulk(payload: {
 
     // 6. Sync onboarded users
     if (payload.onboardedUsers.length > 0) {
-      const onboardPayloads = payload.onboardedUsers.map(o => ({
-        id: o.id,
-        station_id: o.station_id,
-        station_name: o.station_name,
-        station_code: o.station_code,
-        username: o.username,
-        password_raw: o.password_raw,
-        full_name: o.full_name,
-        role: o.role || 'supervisor'
-      }));
-      const { error } = await client.from('onboarded_users').upsert(onboardPayloads);
+      const { data: currentDbUsers } = await client.from('onboarded_users').select('id, username');
+      const dbUserMap = new Map<string, string>();
+      if (currentDbUsers) {
+        currentDbUsers.forEach(u => dbUserMap.set(u.username.toLowerCase(), u.id));
+      }
+
+      const onboardPayloads = payload.onboardedUsers.map(o => {
+        const matchedDbId = dbUserMap.get(o.username.toLowerCase());
+        return {
+          id: matchedDbId || o.id,
+          station_id: o.station_id,
+          station_name: o.station_name,
+          station_code: o.station_code,
+          username: o.username,
+          password_raw: o.password_raw,
+          full_name: o.full_name,
+          role: o.role || 'supervisor'
+        };
+      });
+
+      const uniquePayloadsMap = new Map<string, any>();
+      onboardPayloads.forEach(p => uniquePayloadsMap.set(p.username.toLowerCase(), p));
+      const finalPayloads = Array.from(uniquePayloadsMap.values());
+
+      const { error } = await client.from('onboarded_users').upsert(finalPayloads);
       if (error) throw new Error(`Onboarded users sync failed: ${error.message}`);
     }
 
     // 7. Sync user profiles
     if (payload.userProfiles.length > 0) {
-      const profilePayloads = payload.userProfiles.map(u => ({
-        id: u.id,
-        email: u.email,
-        role: u.role
-      }));
-      const { error } = await client.from('user_profiles').upsert(profilePayloads);
+      const { data: currentDbProfiles } = await client.from('user_profiles').select('id, email');
+      const dbProfileMap = new Map<string, string>();
+      if (currentDbProfiles) {
+        currentDbProfiles.forEach(p => dbProfileMap.set(p.email.toLowerCase(), p.id));
+      }
+
+      const profilePayloads = payload.userProfiles.map(u => {
+        const matchedDbId = dbProfileMap.get(u.email.toLowerCase());
+        return {
+          id: matchedDbId || u.id,
+          email: u.email,
+          role: u.role
+        };
+      });
+
+      const uniqueProfilesMap = new Map<string, any>();
+      profilePayloads.forEach(p => uniqueProfilesMap.set(p.email.toLowerCase(), p));
+      const finalPayloads = Array.from(uniqueProfilesMap.values());
+
+      const { error } = await client.from('user_profiles').upsert(finalPayloads);
       if (error) throw new Error(`User profiles sync failed: ${error.message}`);
     }
 
