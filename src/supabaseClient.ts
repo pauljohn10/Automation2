@@ -211,7 +211,8 @@ export async function fetchOnboardedUsers(): Promise<SupabaseUserRecord[]> {
   const config = getSupabaseConfig();
   if (!config.isConfigured) return [];
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { data, error } = await client
       .from('onboarded_users')
       .select('*')
@@ -236,7 +237,8 @@ export async function fetchStationsFromSupabase(): Promise<FuelStation[] | null>
   const config = getSupabaseConfig();
   if (!config.isConfigured) return null;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { data, error } = await client.from('stations').select('*');
     if (error) {
       console.error('Error fetching stations:', error);
@@ -253,7 +255,8 @@ export async function fetchTanksFromSupabase(): Promise<FuelTank[] | null> {
   const config = getSupabaseConfig();
   if (!config.isConfigured) return null;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { data, error } = await client
       .from('fuel_tanks')
       .select('*')
@@ -273,7 +276,8 @@ export async function fetchPumpsFromSupabase(): Promise<FuelPump[] | null> {
   const config = getSupabaseConfig();
   if (!config.isConfigured) return null;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { data, error } = await client.from('fuel_pumps').select('*');
     if (error) {
       console.error('Error fetching pumps:', error);
@@ -290,7 +294,8 @@ export async function fetchTransactionsFromSupabase(): Promise<SalesTransaction[
   const config = getSupabaseConfig();
   if (!config.isConfigured) return null;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { data, error } = await client.from('sales_transactions').select('*');
     if (error) {
       console.error('Error fetching transactions:', error);
@@ -307,7 +312,8 @@ export async function fetchAuditsFromSupabase(): Promise<AuditLog[] | null> {
   const config = getSupabaseConfig();
   if (!config.isConfigured) return null;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { data, error } = await client.from('audit_logs').select('*');
     if (error) {
       console.error('Error fetching audits:', error);
