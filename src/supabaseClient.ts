@@ -6,8 +6,10 @@ export function getSupabaseConfig() {
   let localUrl = localStorage.getItem('supabase_url_override');
   const localKey = localStorage.getItem('supabase_key_override');
 
-  let envUrl = (import.meta as any).env.VITE_SUPABASE_URL;
-  const envKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
+  // @ts-ignore
+  let envUrl = import.meta.env.VITE_SUPABASE_URL;
+  // @ts-ignore
+  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
   // Active default credentials provided by user
   const defaultUrl = 'https://cgsmiirbaqgetnsjbvgl.supabase.co';
@@ -551,7 +553,8 @@ export interface SupabaseUserProfile {
 }
 
 export function getSupabaseServiceRoleKey(): string | null {
-  return localStorage.getItem('supabase_service_role_override') || (import.meta as any).env.VITE_SUPABASE_SERVICE_ROLE_KEY || null;
+  // @ts-ignore
+  return localStorage.getItem('supabase_service_role_override') || import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || null;
 }
 
 let activeAdminClient: SupabaseClient | null = null;
