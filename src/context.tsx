@@ -21,7 +21,12 @@ import {
   insertTransactionInSupabase,
   insertAuditInSupabase,
   clearAllDataFromSupabase,
-  deleteStationFromSupabase
+  deleteStationFromSupabase,
+  fetchOnboardedUsers,
+  fetchUserProfiles,
+  syncAllDataBulk,
+  SupabaseUserRecord,
+  SupabaseUserProfile
 } from './supabaseClient';
 
 interface FuelSystemContextType {
@@ -101,22 +106,110 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setIsLoading(true);
     try {
       console.log('Downloading master datasets from Supabase Tables...');
-      const [dbStations, dbTanks, dbPumps, dbTransactions, dbAudits] = await Promise.all([
+      const [dbStations, dbTanks, dbPumps, dbTransactions, dbAudits, dbOnboarded, dbProfiles] = await Promise.all([
         fetchStationsFromSupabase(),
         fetchTanksFromSupabase(),
         fetchPumpsFromSupabase(),
         fetchTransactionsFromSupabase(),
-        fetchAuditsFromSupabase()
+        fetchAuditsFromSupabase(),
+        fetchOnboardedUsers(),
+        fetchUserProfiles()
       ]);
 
-      if (dbStations && dbStations.length > 0) {
-        setStations(dbStations);
+      // Load local custom users from localStorage
+      let localUserProfiles: SupabaseUserProfile[] = [];
+      try {
+        const stored = localStorage.getItem('petrologic_custom_users');
+        if (stored) {
+          const parsed = JSON.parse(stored) as any[];
+          localUserProfiles = parsed
+            .filter(u => u.role === 'SUPER_ADMIN' || u.role === 'ADMIN' || u.role === 'VIEWER')
+            .map(u => ({ id: u.id, email: u.email, role: u.role }));
+        }
+      } catch {}
+
+      // Load local onboarded users from sessionStorage
+      let localOnboardedUsers: SupabaseUserRecord[] = [];
+      try {
+        const stored = sessionStorage.getItem('fuel_system_onboarded_users_fallback');
+        if (stored) {
+          localOnboardedUsers = JSON.parse(stored) as SupabaseUserRecord[];
+        }
+      } catch {}
+
+      // Determine if local state is just the default initialized mock data
+      const isDefaultMockData = 
+        stations.length === INITIAL_STATIONS.length &&
+        stations.every(s => INITIAL_STATIONS.some(is => is.id === s.id)) &&
+        tanks.length === INITIAL_TANKS.length &&
+        pumps.length === INITIAL_PUMPS.length;
+
+      let mergedStations = stations;
+      let mergedTanks = tanks;
+      let mergedPumps = pumps;
+      let mergedTransactions = transactions;
+      let mergedAudits = auditLogs;
+      let mergedOnboarded = localOnboardedUsers;
+      let mergedProfiles = localUserProfiles;
+
+      const hasDbData = dbStations && dbStations.length > 0;
+
+      if (hasDbData) {
+        if (isDefaultMockData) {
+          // Unidirectional pull (overwrite local state with DB state)
+          mergedStations = dbStations;
+          mergedTanks = dbTanks || [];
+          mergedPumps = dbPumps || [];
+          mergedTransactions = dbTransactions || [];
+          mergedAudits = dbAudits || [];
+          mergedOnboarded = dbOnboarded || [];
+          mergedProfiles = dbProfiles || [];
+        } else {
+          // Bidirectional merge
+          const mergeLists = <T extends { id: string }>(localList: T[], dbList: T[]): T[] => {
+            const mergedMap = new Map<string, T>();
+            dbList.forEach(item => mergedMap.set(item.id, item));
+            localList.forEach(item => mergedMap.set(item.id, item));
+            return Array.from(mergedMap.values());
+          };
+
+          mergedStations = mergeLists(stations, dbStations);
+          mergedTanks = mergeLists(tanks, dbTanks || []);
+          mergedPumps = mergeLists(pumps, dbPumps || []);
+          mergedTransactions = mergeLists(transactions, dbTransactions || []);
+          mergedAudits = mergeLists(auditLogs, dbAudits || []);
+          mergedOnboarded = mergeLists(localOnboardedUsers, dbOnboarded || []);
+          mergedProfiles = mergeLists(localUserProfiles, dbProfiles || []);
+        }
+      } else {
+        // DB is empty, push local state to seed it
+        console.log('Supabase tables are empty. Seeding database with current local state...');
+      }
+
+      // Perform a full bulk sync across all records
+      const syncRes = await syncAllDataBulk({
+        stations: mergedStations,
+        tanks: mergedTanks,
+        pumps: mergedPumps,
+        transactions: mergedTransactions,
+        audits: mergedAudits,
+        onboardedUsers: mergedOnboarded,
+        userProfiles: mergedProfiles
+      });
+
+      if (!syncRes.success) {
+        console.warn('Supabase bulk upload warning:', syncRes.message);
+      }
+
+      // Update React state
+      if (mergedStations.length > 0) {
+        setStations(mergedStations);
         setSessionState(prev => {
-          const exists = dbStations.some(s => s.id === prev.activeStationId);
+          const exists = mergedStations.some(s => s.id === prev.activeStationId);
           if (!prev.activeStationId || !exists) {
             const updated = {
               ...prev,
-              activeStationId: dbStations[0].id
+              activeStationId: mergedStations[0].id
             };
             try {
               sessionStorage.setItem('fuel_user_session', JSON.stringify(updated));
@@ -126,21 +219,38 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           return prev;
         });
       }
-      if (dbTanks && dbTanks.length > 0) {
-        setTanks(dbTanks);
-      }
-      if (dbPumps && dbPumps.length > 0) {
-        setPumps(dbPumps);
-      }
-      if (dbTransactions !== null) {
-        setTransactions(dbTransactions.sort((a, b) => b.id.localeCompare(a.id)));
-      }
-      if (dbAudits !== null) {
-        setAuditLogs(dbAudits.sort((a, b) => b.id.localeCompare(a.id)));
-      }
+      setTanks(mergedTanks);
+      setPumps(mergedPumps);
+      setTransactions(mergedTransactions.sort((a, b) => b.id.localeCompare(a.id)));
+      setAuditLogs(mergedAudits.sort((a, b) => b.id.localeCompare(a.id)));
+
+      // Update sessionStorage / localStorage cache
+      try {
+        sessionStorage.setItem('fuel_system_onboarded_users_fallback', JSON.stringify(mergedOnboarded));
+      } catch {}
+
+      try {
+        const stored = localStorage.getItem('petrologic_custom_users');
+        let fullCustomUsers: any[] = stored ? JSON.parse(stored) : [];
+        const updatedCustomUsers = mergedProfiles.map(p => {
+          const match = fullCustomUsers.find(cu => cu.id === p.id);
+          return {
+            id: p.id,
+            fullName: match?.fullName || p.email.split('@')[0].toUpperCase(),
+            email: p.email,
+            assignedStationId: 'all',
+            assignedStationName: 'Central HQ',
+            role: p.role,
+            status: match?.status || 'Active',
+            createdAt: match?.createdAt || new Date().toISOString(),
+            lastLogin: match?.lastLogin || new Date().toISOString()
+          };
+        });
+        localStorage.setItem('petrologic_custom_users', JSON.stringify(updatedCustomUsers));
+      } catch {}
 
       setIsLoading(false);
-      return { success: true, message: 'All systems loaded successfully!' };
+      return { success: true, message: 'All systems loaded and synchronized successfully!' };
     } catch (err: any) {
       console.error('Core synchronizer exception:', err);
       setIsLoading(false);

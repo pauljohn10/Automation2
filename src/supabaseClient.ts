@@ -334,7 +334,8 @@ export async function onboardStationWithAssets(
     return { success: false, error: new Error('Supabase is not configured.') };
   }
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
 
     // 1. Write the main Station record first
     const { error: stationErr } = await client.from('stations').upsert({
@@ -408,7 +409,8 @@ export async function upsertStationInSupabase(station: FuelStation): Promise<voi
   const config = getSupabaseConfig();
   if (!config.isConfigured) return;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { error } = await client.from('stations').upsert({
       id: station.id,
       name: station.name,
@@ -432,7 +434,8 @@ export async function upsertTankInSupabase(tank: FuelTank): Promise<void> {
   const config = getSupabaseConfig();
   if (!config.isConfigured) return;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { error } = await client.from('fuel_tanks').upsert({
       id: tank.id,
       stationId: tank.stationId,
@@ -454,7 +457,8 @@ export async function upsertPumpInSupabase(pump: FuelPump): Promise<void> {
   const config = getSupabaseConfig();
   if (!config.isConfigured) return;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { error } = await client.from('fuel_pumps').upsert({
       id: pump.id,
       stationId: pump.stationId,
@@ -475,7 +479,8 @@ export async function insertTransactionInSupabase(tx: SalesTransaction): Promise
   const config = getSupabaseConfig();
   if (!config.isConfigured) return;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { error } = await client.from('sales_transactions').insert({
       id: tx.id,
       stationId: tx.stationId,
@@ -501,7 +506,8 @@ export async function insertAuditInSupabase(log: AuditLog): Promise<void> {
   const config = getSupabaseConfig();
   if (!config.isConfigured) return;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { error } = await client.from('audit_logs').insert({
       id: log.id,
       stationId: log.stationId || null,
@@ -522,7 +528,8 @@ export async function deleteStationFromSupabase(stationId: string): Promise<void
   const config = getSupabaseConfig();
   if (!config.isConfigured) return;
   try {
-    const client = getSupabaseClient();
+    const adminClient = getSupabaseAdminClient();
+    const client = adminClient || getSupabaseClient();
     const { error } = await client.from('stations').delete().eq('id', stationId);
     if (error) console.error('Supabase deletion error (stationId):', error);
   } catch (err) {
@@ -770,5 +777,146 @@ export async function deleteUserAccount(id: string): Promise<{ success: boolean;
   } catch (err: any) {
     console.error('[Supabase Admin Auth] Exception deleting user account:', err);
     return { success: false, message: `Unhandled exception: ${err.message || String(err)}`, error: err };
+  }
+}
+
+export async function syncAllDataBulk(payload: {
+  stations: FuelStation[];
+  tanks: FuelTank[];
+  pumps: FuelPump[];
+  transactions: SalesTransaction[];
+  audits: AuditLog[];
+  onboardedUsers: SupabaseUserRecord[];
+  userProfiles: SupabaseUserProfile[];
+}): Promise<{ success: boolean; message: string }> {
+  const config = getSupabaseConfig();
+  if (!config.isConfigured) {
+    return { success: false, message: 'Supabase is not configured.' };
+  }
+  
+  const adminClient = getSupabaseAdminClient();
+  const client = adminClient || getSupabaseClient();
+
+  try {
+    // 1. Sync stations
+    if (payload.stations.length > 0) {
+      const stationPayloads = payload.stations.map(s => ({
+        id: s.id,
+        name: s.name,
+        code: s.code,
+        location: s.location,
+        manager: s.manager,
+        status: s.status,
+        fuelPricing: s.fuelPricing,
+        username: s.username || null,
+        password: s.password || null,
+        dispenserCount: s.dispenserCount || 2,
+        pumpsPerDispenser: s.pumpsPerDispenser || 2
+      }));
+      const { error } = await client.from('stations').upsert(stationPayloads);
+      if (error) throw new Error(`Stations sync failed: ${error.message}`);
+    }
+
+    // 2. Sync tanks
+    if (payload.tanks.length > 0) {
+      const tankPayloads = payload.tanks.map(t => ({
+        id: t.id,
+        stationId: t.stationId,
+        label: t.label,
+        fuelType: t.fuelType,
+        capacity: Number(t.capacity),
+        currentLevel: Number(t.currentLevel),
+        temperature: Number(t.temperature),
+        waterLevel: Number(t.waterLevel),
+        lastMeasurementTime: t.lastMeasurementTime
+      }));
+      const { error } = await client.from('fuel_tanks').upsert(tankPayloads);
+      if (error) throw new Error(`Tanks sync failed: ${error.message}`);
+    }
+
+    // 3. Sync pumps
+    if (payload.pumps.length > 0) {
+      const pumpPayloads = payload.pumps.map(p => ({
+        id: p.id,
+        stationId: p.stationId,
+        label: p.label,
+        status: p.status,
+        fuelType: p.fuelType || null,
+        activeFuelGrade: p.activeFuelGrade || null,
+        flowRate: Number(p.flowRate || 40.00),
+        volumeThisSession: Number(p.volumeThisSession || 0.00)
+      }));
+      const { error } = await client.from('fuel_pumps').upsert(pumpPayloads);
+      if (error) throw new Error(`Pumps sync failed: ${error.message}`);
+    }
+
+    // 4. Sync transactions
+    if (payload.transactions.length > 0) {
+      const txPayloads = payload.transactions.map(t => ({
+        id: t.id,
+        stationId: t.stationId,
+        timestamp: t.timestamp,
+        pumpId: t.pumpId,
+        fuelType: t.fuelType,
+        volume: Number(t.volume),
+        heightBefore: t.heightBefore !== undefined ? Number(t.heightBefore) : null,
+        heightAfter: t.heightAfter !== undefined ? Number(t.heightAfter) : null,
+        temperature: t.temperature !== undefined ? Number(t.temperature) : null,
+        waterLevel: t.waterLevel !== undefined ? Number(t.waterLevel) : null,
+        pricePerLitre: Number(t.pricePerLitre),
+        amount: Number(t.amount),
+        status: t.status
+      }));
+      const { error } = await client.from('sales_transactions').upsert(txPayloads);
+      if (error) throw new Error(`Transactions sync failed: ${error.message}`);
+    }
+
+    // 5. Sync audits
+    if (payload.audits.length > 0) {
+      const auditPayloads = payload.audits.map(a => ({
+        id: a.id,
+        stationId: a.stationId || null,
+        timestamp: a.timestamp,
+        user: a.user,
+        role: a.role,
+        action: a.action,
+        details: a.details,
+        ipAddress: a.ipAddress
+      }));
+      const { error } = await client.from('audit_logs').upsert(auditPayloads);
+      if (error) throw new Error(`Audits sync failed: ${error.message}`);
+    }
+
+    // 6. Sync onboarded users
+    if (payload.onboardedUsers.length > 0) {
+      const onboardPayloads = payload.onboardedUsers.map(o => ({
+        id: o.id,
+        station_id: o.station_id,
+        station_name: o.station_name,
+        station_code: o.station_code,
+        username: o.username,
+        password_raw: o.password_raw,
+        full_name: o.full_name,
+        role: o.role || 'supervisor'
+      }));
+      const { error } = await client.from('onboarded_users').upsert(onboardPayloads);
+      if (error) throw new Error(`Onboarded users sync failed: ${error.message}`);
+    }
+
+    // 7. Sync user profiles
+    if (payload.userProfiles.length > 0) {
+      const profilePayloads = payload.userProfiles.map(u => ({
+        id: u.id,
+        email: u.email,
+        role: u.role
+      }));
+      const { error } = await client.from('user_profiles').upsert(profilePayloads);
+      if (error) throw new Error(`User profiles sync failed: ${error.message}`);
+    }
+
+    return { success: true, message: 'All tables synced successfully in bulk!' };
+  } catch (err: any) {
+    console.error('Bulk sync failed:', err);
+    return { success: false, message: err.message || String(err) };
   }
 }
