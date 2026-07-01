@@ -5,5 +5,5 @@
 
 // Electron Preload Script
 window.addEventListener('DOMContentLoaded', () => {
-  console.log('PetroLogic ERP Desktop context initialized.');
+  console.log('Noor Fuel Automation Desktop context initialized.');
 });

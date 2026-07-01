@@ -450,8 +450,8 @@ export const LoginScreen: React.FC = () => {
             <Server size={22} className="animate-pulse" />
           </div>
           <div>
-            <h1 className="text-lg font-black text-slate-100 tracking-tight uppercase leading-none">PetroLogic ERP</h1>
-            <p className="text-[10px] text-slate-400 font-mono tracking-widest uppercase mt-1">Enterprise Fuel Suite</p>
+            <h1 className="text-lg font-black text-slate-100 tracking-tight uppercase leading-none">Noor Fuel Automation</h1>
+            <p className="text-[10px] text-slate-400 font-mono tracking-widest uppercase mt-1">Fuel Automation System</p>
           </div>
         </div>
 

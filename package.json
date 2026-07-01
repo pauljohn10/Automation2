@@ -43,7 +43,7 @@
   },
   "build": {
     "appId": "com.petrologic.erp",
-    "productName": "PetroLogicERP",
+    "productName": "Noor Fuel Automation",
     "directories": {
       "output": "dist-electron"
     },
@@ -56,14 +56,15 @@
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "assets/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "PetroLogic ERP"
+      "shortcutName": "Noor Fuel Automation"
     }
   }
 }

@@ -56,7 +56,7 @@ const DEFAULT_SEED_USERS: UnifiedUser[] = [
   {
     id: 'usr-bypass-admin',
     fullName: 'HQ Super Admin',
-    email: 'admin@petrologic.com',
+    email: 'admin@noorfuel.com',
     assignedStationId: 'all',
     assignedStationName: 'Central HQ',
     role: 'SUPER_ADMIN',
@@ -67,7 +67,7 @@ const DEFAULT_SEED_USERS: UnifiedUser[] = [
   {
     id: 'usr-demo-viewer',
     fullName: 'Amal Al-Otaibi',
-    email: 'amal.viewer@petrologic.com',
+    email: 'amal.viewer@noorfuel.com',
     assignedStationId: 'all',
     assignedStationName: 'Central HQ',
     role: 'VIEWER',
@@ -78,7 +78,7 @@ const DEFAULT_SEED_USERS: UnifiedUser[] = [
   {
     id: 'usr-demo-admin',
     fullName: 'Fahad Al-Saud',
-    email: 'fahad.admin@petrologic.com',
+    email: 'fahad.admin@noorfuel.com',
     assignedStationId: 'all',
     assignedStationName: 'Central HQ',
     role: 'ADMIN',
@@ -1266,7 +1266,7 @@ export const UserManagement: React.FC = () => {
 
               {selectedUser.status === 'Active' && (
                 <div className="bg-rose-50 border border-rose-200 p-3 rounded-lg text-[10px] text-rose-800 leading-relaxed">
-                  <span className="font-bold">Warning:</span> Deactivating this user terminates their active terminal access tokens. They will not be able to log in to PetroLogic panels until reactivated.
+                  <span className="font-bold">Warning:</span> Deactivating this user terminates their active terminal access tokens. They will not be able to log in to Noor Fuel panels until reactivated.
                 </div>
               )}
 
