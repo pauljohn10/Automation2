@@ -154,13 +154,12 @@ export const TankMonitor: React.FC = () => {
 
   // Handler for tank click (Rule 2)
   const handleTankClick = (tank: FuelTank) => {
-    if (session.role === 'VIEWER' || session.role === 'OPERATOR') {
-      alert('Access Denied: You do not have permission to configure tank telemetry.');
+    if (session.role !== 'SUPER_ADMIN' && session.role !== 'ADMIN') {
+      alert('Access Denied: Only Super Admin and Admin can configure tank telemetry.');
       return;
     }
-    const currentId = tank.stationId;
-    // Strictly restrict click trigger to active authenticated fuel station account session
-    if (activeStationAccount && activeStationAccount.id === currentId) {
+    // Allow SUPER_ADMIN and ADMIN to configure telemetry for tanks belonging to the active station context
+    if (tank.stationId === session.activeStationId) {
       setSelectedTankId(tank.id);
       setInputValue(String(tank.currentLevel));
       setValidationError(null);
@@ -172,8 +171,8 @@ export const TankMonitor: React.FC = () => {
     e.preventDefault();
     if (!selectedTankId) return;
 
-    if (session.role === 'VIEWER' || session.role === 'OPERATOR') {
-      setValidationError('Access Denied: You do not have permission to configure tank telemetry.');
+    if (session.role !== 'SUPER_ADMIN' && session.role !== 'ADMIN') {
+      setValidationError('Access Denied: Only Super Admin and Admin can configure tank telemetry.');
       return;
     }
 
@@ -227,9 +226,8 @@ export const TankMonitor: React.FC = () => {
           const ullage = tank.capacity - tank.currentLevel;
           const fuelColor = getFuelColor(tank.fuelType);
 
-          // Render click border states strictly for verified fuel station account operator
-          const currentStationId = tank.stationId;
-          const isAuthorized = activeStationAccount !== null && activeStationAccount.id === currentStationId && session.role !== 'VIEWER' && session.role !== 'OPERATOR';
+          // Render click border states strictly for SUPER_ADMIN and ADMIN
+          const isAuthorized = session.role === 'SUPER_ADMIN' || session.role === 'ADMIN';
           const isHighlighted = tank.label === 'Tank 02';
 
           return (
@@ -239,7 +237,9 @@ export const TankMonitor: React.FC = () => {
               className={`bg-white rounded-xl shadow-xs transition-all duration-250 p-5 flex flex-col justify-between ${
                 isHighlighted 
                   ? 'border-2 border-[#ca1880]' 
-                  : 'border border-[#cbd5e1] hover:border-[#ca1880]'
+                  : isAuthorized
+                  ? 'border border-[#cbd5e1] hover:border-[#ca1880]'
+                  : 'border border-[#cbd5e1]'
               } ${
                 isAuthorized ? 'cursor-pointer' : ''
               }`}
