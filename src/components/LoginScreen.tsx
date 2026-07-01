@@ -105,6 +105,27 @@ export const LoginScreen: React.FC = () => {
         st => st.username && st.username.trim().toLowerCase() === lowerUser && st.password === cleanPass
       );
 
+      // Block onboarded station supervisors / operators from Central HQ Workspace
+      const isOnboardedStationUser = stations.some(
+        st => st.id.startsWith('st-onboard-') && st.username && st.username.trim().toLowerCase() === lowerUser
+      );
+
+      let isOnboardedDbUser = false;
+      try {
+        const stored = sessionStorage.getItem('fuel_system_onboarded_users_fallback');
+        if (stored) {
+          const fallbackList = JSON.parse(stored);
+          isOnboardedDbUser = fallbackList.some(
+            (u: any) => u.username && u.username.trim().toLowerCase() === lowerUser && u.station_id.startsWith('st-onboard-')
+          );
+        }
+      } catch {}
+
+      if (isOnboardedStationUser || isOnboardedDbUser || (matchedStationByCustomCreds && matchedStationByCustomCreds.id.startsWith('st-onboard-'))) {
+        setErrorMsg('Access Denied. Onboarded Station accounts must sign in through the Station Operator gateway.');
+        return;
+      }
+
       if (matchedStationByCustomCreds) {
         setSession({
           role: 'STATION_ADMIN',
@@ -192,6 +213,12 @@ export const LoginScreen: React.FC = () => {
               .maybeSingle();
 
             if (onboardedUser) {
+              if (onboardedUser.station_id.startsWith('st-onboard-')) {
+                setErrorMsg('Access Denied. Onboarded Station accounts must sign in through the Station Operator gateway.');
+                setIsSubmitting(false);
+                return;
+              }
+
               setSession({
                 role: 'STATION_ADMIN',
                 name: onboardedUser.full_name || userEmail,
@@ -240,18 +267,124 @@ export const LoginScreen: React.FC = () => {
     // B. STANDARD LOCAL STATION OPERATOR GATEWAY MODE
     const lowerUser = cleanUser.toLowerCase();
 
+    // Check if user is a newly onboarded station supervisor or operator
+    const isOnboardedStationUser = stations.some(
+      st => st.id.startsWith('st-onboard-') && st.username && st.username.trim().toLowerCase() === lowerUser
+    );
+
+    let isOnboardedDbUser = false;
+    try {
+      const stored = sessionStorage.getItem('fuel_system_onboarded_users_fallback');
+      if (stored) {
+        const fallbackList = JSON.parse(stored);
+        isOnboardedDbUser = fallbackList.some(
+          (u: any) => u.username && u.username.trim().toLowerCase() === lowerUser && u.station_id.startsWith('st-onboard-')
+        );
+      }
+    } catch {}
+
+    const isAllowedOnboarded = isOnboardedStationUser || isOnboardedDbUser;
+
     // 1. Block covered corporate roles (HQ Super Admin, Admin, Supervisor, Viewer) from standard Station Operator tab
+    // BUT allow newly onboarded station accounts!
     if (
-      lowerUser === 'admin' || 
-      lowerUser.includes('admin') || 
-      lowerUser.includes('supervisor') || 
-      lowerUser.includes('viewer')
+      !isAllowedOnboarded && (
+        lowerUser === 'admin' || 
+        lowerUser.includes('admin') || 
+        lowerUser.includes('supervisor') || 
+        lowerUser.includes('viewer')
+      )
     ) {
       setErrorMsg('Access Denied. Corporate HQ Accounts (HQ Admins, Super Admins, Supervisors, and Viewers) must exclusively sign in through the Central HQ Workspace gateway.');
       return;
     }
 
-    // 2. Check Custom Station Operator credentials
+    // 2. Check Custom Station supervisor credentials for newly onboarded stations (from stations state)
+    const matchedOnboardedStation = stations.find(
+      st => st.id.startsWith('st-onboard-') && st.username && st.username.trim().toLowerCase() === lowerUser && st.password === cleanPass
+    );
+
+    if (matchedOnboardedStation) {
+      setSession({
+        role: 'STATION_ADMIN',
+        name: matchedOnboardedStation.manager || `${matchedOnboardedStation.name} Supervisor`,
+        activeStationId: matchedOnboardedStation.id,
+        isLoggedIn: true,
+        originalRole: 'STATION_ADMIN',
+        isStationContext: true
+      });
+
+      addCustomAuditLog(
+        'SUPERVISOR_LOGIN',
+        `Supervisor "${matchedOnboardedStation.manager}" successfully authenticated via station operator gateway.`,
+        matchedOnboardedStation.id
+      );
+      return;
+    }
+
+    // 3. Check newly onboarded users from sessionStorage fallback
+    if (isOnboardedDbUser) {
+      let localOnboarded: any[] = [];
+      try {
+        const stored = sessionStorage.getItem('fuel_system_onboarded_users_fallback');
+        if (stored) localOnboarded = JSON.parse(stored);
+      } catch {}
+      
+      const matchedOnboardedLocalUser = localOnboarded.find(
+        u => u.username && u.username.trim().toLowerCase() === lowerUser && u.password_raw === cleanPass
+      );
+
+      if (matchedOnboardedLocalUser && matchedOnboardedLocalUser.station_id.startsWith('st-onboard-')) {
+        setSession({
+          role: matchedOnboardedLocalUser.role === 'supervisor' ? 'STATION_ADMIN' : 'OPERATOR',
+          name: matchedOnboardedLocalUser.full_name || matchedOnboardedLocalUser.username,
+          activeStationId: matchedOnboardedLocalUser.station_id,
+          isLoggedIn: true,
+          originalRole: matchedOnboardedLocalUser.role === 'supervisor' ? 'STATION_ADMIN' : 'OPERATOR',
+          isStationContext: true
+        });
+
+        addCustomAuditLog(
+          matchedOnboardedLocalUser.role === 'supervisor' ? 'SUPERVISOR_LOGIN' : 'OPERATOR_LOGIN',
+          `${matchedOnboardedLocalUser.role === 'supervisor' ? 'Supervisor' : 'Operator'} "${matchedOnboardedLocalUser.full_name}" authenticated via station operator gateway (offline).`,
+          matchedOnboardedLocalUser.station_id
+        );
+        return;
+      }
+    }
+
+    // 4. Try online check for onboarded users database table
+    try {
+      const client = getSupabaseClient();
+      const { data: dbOnboardedUser } = await client
+        .from('onboarded_users')
+        .select('*')
+        .eq('username', lowerUser)
+        .eq('password_raw', cleanPass)
+        .maybeSingle();
+
+      if (dbOnboardedUser && dbOnboardedUser.station_id.startsWith('st-onboard-')) {
+        setSession({
+          role: dbOnboardedUser.role === 'supervisor' ? 'STATION_ADMIN' : 'OPERATOR',
+          name: dbOnboardedUser.full_name || dbOnboardedUser.username,
+          activeStationId: dbOnboardedUser.station_id,
+          isLoggedIn: true,
+          originalRole: dbOnboardedUser.role === 'supervisor' ? 'STATION_ADMIN' : 'OPERATOR',
+          isStationContext: true
+        });
+
+        addCustomAuditLog(
+          dbOnboardedUser.role === 'supervisor' ? 'SUPERVISOR_LOGIN' : 'OPERATOR_LOGIN',
+          `${dbOnboardedUser.role === 'supervisor' ? 'Supervisor' : 'Operator'} "${dbOnboardedUser.full_name}" authenticated via station operator gateway.`,
+          dbOnboardedUser.station_id
+        );
+        return;
+      }
+    } catch (err) {
+      console.warn("DB check for operator fallback skipped/failed:", err);
+    }
+
+    // 5. Check Custom Station Operator credentials (hardcoded operators)
     const matchedOperator = [
       { username: 'noor5', password: '123', stationName: 'Huseniya', stationCode: 'huseniya' },
       { username: 'noor2', password: 'asd', stationName: 'Matar', stationCode: 'matar' },
@@ -638,13 +771,14 @@ export const LoginScreen: React.FC = () => {
                         .map(st => {
                           const supervisorUser = st.username || `${st.code.toLowerCase()}.supervisor`;
                           const supervisorPass = st.password || 'password123';
+                          const isOnboarded = st.id.startsWith('st-onboard-');
                           return (
                             <div
                               key={st.id}
                               onClick={() => {
                                 setUsername(supervisorUser);
                                 setPassword(supervisorPass);
-                                setLoginMode('corporate');
+                                setLoginMode(isOnboarded ? 'station' : 'corporate');
                                 setShowCredentialsModal(false);
                                 setErrorMsg('');
                               }}
@@ -653,6 +787,11 @@ export const LoginScreen: React.FC = () => {
                               <div>
                                 <span className="font-bold text-slate-300 block">{st.name}</span>
                                 <span className="text-[8px] text-slate-500 font-mono">Mgr: {st.manager || 'No Manager'}</span>
+                                {isOnboarded && (
+                                  <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-wider bg-[#6c5dd3]/10 text-indigo-400 border border-[#6c5dd3]/20">
+                                    Operator Gateway Only
+                                  </span>
+                                )}
                               </div>
                               <div className="text-right font-mono text-[9px] text-slate-450 space-y-0.5">
                                 <div>User: <span className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-200">{supervisorUser}</span></div>
