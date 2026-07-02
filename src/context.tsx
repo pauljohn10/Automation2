@@ -96,9 +96,30 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const activeStation = stations.find(s => s.id === session.activeStationId);
 
-  // Load and sync entire operational state from live Supabase Tables on mount
+  // Load and sync entire operational state from live Supabase Tables on mount and periodically in the background
   useEffect(() => {
     refreshAllFromSupabase();
+
+    const intervalId = setInterval(() => {
+      const config = getSupabaseConfig();
+      if (config.isConfigured) {
+        Promise.all([
+          fetchStationsFromSupabase(),
+          fetchTanksFromSupabase(),
+          fetchPumpsFromSupabase(),
+          fetchTransactionsFromSupabase(),
+          fetchAuditsFromSupabase()
+        ]).then(([dbStations, dbTanks, dbPumps, dbTransactions, dbAudits]) => {
+          if (dbStations && dbStations.length > 0) setStations(dbStations);
+          if (dbTanks) setTanks(dbTanks);
+          if (dbPumps) setPumps(dbPumps);
+          if (dbTransactions) setTransactions(dbTransactions.sort((a, b) => b.id.localeCompare(a.id)));
+          if (dbAudits) setAuditLogs(dbAudits.sort((a, b) => b.id.localeCompare(a.id)));
+        }).catch(err => console.warn('Background sync failed:', err));
+      }
+    }, 8000);
+
+    return () => clearInterval(intervalId);
   }, []);
 
   const refreshAllFromSupabase = async (): Promise<{ success: boolean; message: string }> => {
