@@ -535,51 +535,93 @@ export const MobileDispenserApp: React.FC = () => {
                     const statusClass = getStatusColorClass(pump.status);
                     const isOffline = pump.status === 'MAINTENANCE';
 
-                    return (
-                      <div
-                        key={pump.id}
-                        onClick={() => {
-                          if (isOffline) return;
-                          setSelectedPump(pump);
-                        }}
-                        className={`bg-[#111827] border rounded-xl p-4 flex items-center justify-between shadow-xs transition-all hover:bg-[#161f33] ${
-                          isOffline ? 'opacity-55 cursor-not-allowed border-slate-850' : 'cursor-pointer border-slate-800'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3.5">
-                          {/* Left icon wrapper */}
-                          <div className={`w-10 h-10 rounded-lg bg-[#141b2a] flex items-center justify-center border border-slate-800 ${
-                            isOffline ? 'text-slate-600' : 'text-[#8c7dfc]'
-                          }`}>
-                            <Fuel size={18} />
-                          </div>
-                          
-                          {/* Pump info */}
-                          <div className="space-y-0.5">
-                            <h4 className="text-xs font-black text-slate-200 uppercase tracking-wide">{pump.label}</h4>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[9px] font-extrabold text-indigo-400 bg-indigo-950 px-1.5 py-0.5 rounded border border-indigo-900 uppercase font-mono">
-                                {pump.fuelType || 'GAS91'}
-                              </span>
-                              <span className="text-[9px] text-slate-500 font-medium font-semibold">SAR {price.toFixed(2)}/L</span>
-                            </div>
-                          </div>
-                        </div>
+                     let cardBorderClass = 'border-slate-800';
+                     let cardBgClass = 'bg-[#111827]';
+                     let pulseClass = '';
 
-                        {/* Right status pill */}
-                        <div className="text-right flex flex-col justify-center items-end">
-                          <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border ${statusClass}`}>
-                            {getStatusName(pump.status)}
-                          </span>
-                          {pump.status === 'PUMPING' && pump.volumeThisSession && (
-                            <span className="text-[9px] text-amber-500 font-bold font-mono mt-1 animate-pulse">
-                              {pump.volumeThisSession.toFixed(1)} L
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                     if (pump.status === 'IDLE') {
+                       cardBorderClass = 'border-emerald-500/20 hover:border-emerald-500/40 bg-[#111827]';
+                     } else if (pump.status === 'PUMPING') {
+                       cardBorderClass = 'border-amber-500/60 shadow-lg';
+                       cardBgClass = 'bg-[#181410]';
+                       pulseClass = 'animate-pulse';
+                     } else if (pump.status === 'COMPLETED') {
+                       cardBorderClass = 'border-blue-500/60 shadow-lg';
+                       cardBgClass = 'bg-[#101423]';
+                     } else if (isOffline) {
+                       cardBorderClass = 'border-slate-850';
+                       cardBgClass = 'bg-[#111827] opacity-40';
+                     }
+
+                     return (
+                       <div
+                         key={pump.id}
+                         onClick={() => {
+                           if (isOffline) return;
+                           setSelectedPump(pump);
+                         }}
+                         className={`border rounded-xl p-4 flex items-center justify-between transition-all hover:bg-[#161f33] ${cardBgClass} ${cardBorderClass} ${pulseClass} ${
+                           isOffline ? 'cursor-not-allowed' : 'cursor-pointer'
+                         }`}
+                       >
+                         <div className="flex items-center gap-3.5">
+                           {/* Left icon wrapper */}
+                           <div className={`w-10 h-10 rounded-lg bg-[#141b2a] flex items-center justify-center border border-slate-800 ${
+                             isOffline ? 'text-slate-600' : 'text-[#8c7dfc]'
+                           }`}>
+                             <Fuel size={18} />
+                           </div>
+                           
+                           {/* Pump info */}
+                           <div className="space-y-0.5">
+                             <h4 className="text-xs font-black text-slate-200 uppercase tracking-wide">{pump.label}</h4>
+                             <div className="flex items-center gap-1.5">
+                               <span className="text-[9px] font-extrabold text-indigo-400 bg-indigo-950 px-1.5 py-0.5 rounded border border-indigo-900 uppercase font-mono">
+                                 {pump.fuelType || 'GAS91'}
+                               </span>
+                               <span className="text-[9px] text-slate-500 font-medium font-semibold">SAR {price.toFixed(2)}/L</span>
+                             </div>
+                           </div>
+                         </div>
+
+                         {/* Right status pill & metrics */}
+                         <div className="text-right flex flex-col justify-center items-end">
+                           {pump.status === 'PUMPING' ? (
+                             <div className="flex flex-col items-end gap-1">
+                               <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border bg-amber-500/10 text-amber-400 border-amber-500/25">
+                                 Dispensing
+                               </span>
+                               <span className="text-xs font-black text-slate-200 font-mono">
+                                 {(pump.volumeThisSession || 0).toFixed(2)} L
+                               </span>
+                               <span className="text-[9px] font-bold text-emerald-400 font-mono">
+                                 SAR {((pump.volumeThisSession || 0) * price).toFixed(2)}
+                               </span>
+                             </div>
+                           ) : pump.status === 'COMPLETED' ? (
+                             <div className="flex flex-col items-end gap-1.5">
+                               <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border bg-blue-500/10 text-blue-400 border-blue-500/25">
+                                 Pumping Done
+                               </span>
+                               <button 
+                                 onClick={(e) => {
+                                   e.stopPropagation();
+                                   setSelectedPump(pump);
+                                 }}
+                                 className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[8px] font-black uppercase tracking-wider border-none cursor-pointer shadow-md select-none transition-all font-sans"
+                               >
+                                 Verify & Complete
+                               </button>
+                             </div>
+                           ) : (
+                             <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border ${statusClass}`}>
+                               {getStatusName(pump.status)}
+                             </span>
+                           )}
+                         </div>
+                       </div>
+                     );
+                   })}
                 </div>
               )}
             </div>
