@@ -8,9 +8,9 @@
 
 /* 1. Core Base Body Styling */
 body {
-  background-color: #090d16 !important;
-  color: #f1f5f9 !important;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  background-color: #f1f5f9;
+  color: #1e293b;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 /* 2. Text Color Fallbacks */
