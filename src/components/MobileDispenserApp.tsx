@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { useFuelSystem } from '../context';
 import { FuelGrade, FuelPump } from '../types';
 import { LogOut, Fuel, MapPin, User, DollarSign, CheckCircle, RefreshCw, ArrowLeft, AlertTriangle } from 'lucide-react';
@@ -195,7 +196,7 @@ export const MobileDispenserApp: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-2">
-            {session.isMobilePreview && (
+            {session.isMobilePreview && !Capacitor.isNativePlatform() && (
               <button
                 onClick={handleBackToAdmin}
                 className="px-2.5 py-1 bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-500/30 text-[9px] font-black uppercase tracking-wider rounded text-indigo-300 transition-colors"
@@ -216,12 +217,26 @@ export const MobileDispenserApp: React.FC = () => {
 
         {/* Attendant Context Banner */}
         <div className="bg-[#182235] border-b border-slate-850 px-5 py-3 flex justify-between items-center text-left">
-          <div className="space-y-0.5">
+          <div className="space-y-0.5 flex-1 min-w-0">
             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest block">Active Station:</span>
-            <div className="text-xs font-black text-slate-200 flex items-center gap-1">
-              <MapPin size={11} className="text-[#8c7dfc]" />
-              <span>{activeStation?.name || 'No Active Station Context'}</span>
-            </div>
+            {session.role !== 'OPERATOR' ? (
+              <select
+                value={session.activeStationId}
+                onChange={(e) => setSession({ ...session, activeStationId: e.target.value })}
+                className="bg-[#0f172a] text-slate-200 border border-slate-700 rounded px-1.5 py-0.5 text-xs font-semibold focus:outline-none focus:border-[#8c7dfc] max-w-[200px]"
+              >
+                {stations.map(st => (
+                  <option key={st.id} value={st.id}>
+                    {st.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="text-xs font-black text-slate-200 flex items-center gap-1 truncate">
+                <MapPin size={11} className="text-[#8c7dfc] shrink-0" />
+                <span className="truncate">{activeStation?.name || 'No Active Station Context'}</span>
+              </div>
+            )}
           </div>
           <div className="text-right space-y-0.5">
             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest block">Attendant:</span>

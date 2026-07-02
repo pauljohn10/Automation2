@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { FuelSystemProvider, useFuelSystem } from './context';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
@@ -93,7 +94,7 @@ function AppContent() {
     return <LoginScreen />;
   }
 
-  if (session.role === 'OPERATOR' || session.isMobilePreview) {
+  if (session.role === 'OPERATOR' || session.isMobilePreview || Capacitor.isNativePlatform()) {
     return <MobileDispenserApp />;
   }
 
