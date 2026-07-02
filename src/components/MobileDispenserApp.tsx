@@ -25,8 +25,9 @@ import {
   Calendar, 
   ClipboardList,
   Menu,
+  ChevronLeft,
+  ChevronRight,
   Activity,
-  FileText,
   Sparkles,
   Database
 } from 'lucide-react';
@@ -53,10 +54,9 @@ export const MobileDispenserApp: React.FC = () => {
 
   const stationTanks = tanks.filter(t => t.stationId === session.activeStationId);
 
-  // Layout Tab Routing state: 'pump_monitor' or 'transactions'
-  const [activeTab, setActiveTab] = useState<'pump_monitor' | 'transactions'>('pump_monitor');
-
-  // Sidebar Drawer state for mobile viewports
+  // States
+  const [activeTab, setActiveTab] = useState<string>('pump_monitor');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
 
   // Search & Filter state for Transactions page
@@ -64,7 +64,7 @@ export const MobileDispenserApp: React.FC = () => {
   const [txGradeFilter, setTxGradeFilter] = useState<string>('ALL');
   const [txSortOrder, setTxSortOrder] = useState<'newest' | 'oldest'>('newest');
   
-  // Modal inspectors
+  // Modals / Overlays
   const [selectedPump, setSelectedPump] = useState<FuelPump | null>(null);
   const [viewedTx, setViewedTx] = useState<SalesTransaction | null>(null);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState<boolean>(false);
@@ -88,7 +88,7 @@ export const MobileDispenserApp: React.FC = () => {
     customer?: string;
   } | null>(null);
 
-  // Dynamic values helper
+  // Auto-calculated helpers
   const getSelectedPumpPrice = (pumpObj: FuelPump): number => {
     const grade = pumpObj.fuelType || 'GAS91';
     return activeStation?.fuelPricing[grade] || 2.18;
@@ -195,55 +195,90 @@ export const MobileDispenserApp: React.FC = () => {
     const inactiveClass = 'text-slate-650 hover:bg-slate-50 border-l-4 border-transparent';
 
     return (
-      <div className="h-full flex flex-col justify-between bg-white text-slate-800">
+      <div className="h-full flex flex-col justify-between bg-white text-slate-800 text-left select-none">
         <div className="space-y-6">
           {/* Logo & Brand Header */}
-          <div className="p-5 border-b border-slate-100 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#6c5dd3] flex items-center justify-center text-white font-black text-xl shadow-md">
-              F
+          <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#6c5dd3] flex items-center justify-center text-white font-black text-xl shadow-md">
+                F
+              </div>
+              {!isSidebarCollapsed && (
+                <div className="leading-tight animate-fade-in">
+                  <h1 className="text-sm font-black tracking-wider text-slate-900 uppercase">
+                    {activeStation?.name.split('-')[0].trim() || 'JAMA'}
+                  </h1>
+                  <span className="text-[10px] text-slate-500 font-extrabold tracking-widest uppercase block">
+                    SUPERVISOR
+                  </span>
+                </div>
+              )}
             </div>
-            <div className="text-left leading-tight">
-              <h1 className="text-sm font-black tracking-wider text-slate-900 uppercase">
-                {activeStation?.name.split('-')[0].trim() || 'JAMA'}
-              </h1>
-              <span className="text-[10px] text-slate-500 font-extrabold tracking-widest uppercase block">
-                SUPERVISOR
-              </span>
-            </div>
+
+            {/* Collapse toggle button */}
+            <button
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="hidden lg:flex p-1.5 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-500 transition-colors"
+            >
+              {isSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            </button>
           </div>
 
           {/* Attendant User Profile Card */}
-          <div className="px-4">
-            <div className="bg-[#f5f3ff] border border-[#ddd6fe] rounded-xl p-3.5 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#6c5dd3] text-white font-bold flex items-center justify-center uppercase text-sm">
-                {session.name.slice(0, 1)}
-              </div>
-              <div className="text-left min-w-0 flex-1">
-                <h4 className="text-xs font-black text-slate-900 truncate">{session.name.split('@')[0]}</h4>
-                <span className="text-[8px] font-black text-[#6c5dd3] tracking-wider uppercase block mt-0.5">
-                  STATION ATTENDANT
-                </span>
+          {!isSidebarCollapsed && (
+            <div className="px-4 animate-fade-in">
+              <div className="bg-[#f5f3ff] border border-[#ddd6fe] rounded-xl p-3.5 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-[#6c5dd3] text-white font-bold flex items-center justify-center uppercase text-sm">
+                  {session.name.slice(0, 1)}
+                </div>
+                <div className="text-left min-w-0 flex-1">
+                  <h4 className="text-xs font-black text-slate-900 truncate">{session.name.split('@')[0]}</h4>
+                  <span className="text-[8px] font-black text-[#6c5dd3] tracking-wider uppercase block mt-0.5">
+                    STATION SUPERVISOR
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Navigation Links */}
           <div className="space-y-1">
-            <div className="text-[9px] font-black text-slate-400 tracking-widest uppercase px-5 mb-2.5">
-              STATION TELEMETRY
-            </div>
+            {!isSidebarCollapsed && (
+              <div className="text-[9px] font-black text-slate-400 tracking-widest uppercase px-5 mb-2.5 animate-fade-in">
+                STATION TELEMETRY
+              </div>
+            )}
             
+            <button
+              onClick={() => {
+                setActiveTab('tank_monitor');
+                setIsDrawerOpen(false);
+              }}
+              className={`w-full flex items-center gap-3.5 px-5 py-3 text-xs transition-all ${
+                isSidebarCollapsed ? 'justify-center py-4' : ''
+              } ${
+                activeTab === 'tank_monitor' ? activeClass : inactiveClass
+              }`}
+              title="Tank Monitor"
+            >
+              <Activity size={16} className="shrink-0" />
+              {!isSidebarCollapsed && <span className="animate-fade-in">Tank Monitor</span>}
+            </button>
+
             <button
               onClick={() => {
                 setActiveTab('pump_monitor');
                 setIsDrawerOpen(false);
               }}
               className={`w-full flex items-center gap-3.5 px-5 py-3 text-xs transition-all ${
+                isSidebarCollapsed ? 'justify-center py-4' : ''
+              } ${
                 activeTab === 'pump_monitor' ? activeClass : inactiveClass
               }`}
+              title="Pump Monitor"
             >
               <Fuel size={16} className="shrink-0" />
-              <span>Pump Monitor</span>
+              {!isSidebarCollapsed && <span className="animate-fade-in">Pump Monitor</span>}
             </button>
 
             <button
@@ -252,29 +287,50 @@ export const MobileDispenserApp: React.FC = () => {
                 setIsDrawerOpen(false);
               }}
               className={`w-full flex items-center gap-3.5 px-5 py-3 text-xs transition-all ${
+                isSidebarCollapsed ? 'justify-center py-4' : ''
+              } ${
                 activeTab === 'transactions' ? activeClass : inactiveClass
               }`}
+              title="Tank Reporting Logs"
             >
               <ClipboardList size={16} className="shrink-0" />
-              <span>Transactions Log</span>
+              {!isSidebarCollapsed && <span className="animate-fade-in">Tank Reporting Logs</span>}
+            </button>
+
+            <button
+              onClick={() => {
+                setActiveTab('show_prices');
+                setIsDrawerOpen(false);
+              }}
+              className={`w-full flex items-center gap-3.5 px-5 py-3 text-xs transition-all ${
+                isSidebarCollapsed ? 'justify-center py-4' : ''
+              } ${
+                activeTab === 'show_prices' ? activeClass : inactiveClass
+              }`}
+              title="Show Prices Index"
+            >
+              <Receipt size={16} className="shrink-0" />
+              {!isSidebarCollapsed && <span className="animate-fade-in">Show Prices Index</span>}
             </button>
           </div>
         </div>
 
         {/* Bottom Helper & Logout Exit Button */}
         <div className="p-4 space-y-3.5 border-t border-slate-100 bg-slate-50/50">
-          <div className="bg-[#fef3c7] border border-[#fde68a] rounded-xl p-3 text-[10px] font-semibold text-[#92400e] text-left leading-relaxed">
-            <div className="font-bold text-[#b45309] uppercase tracking-wide mb-0.5 flex items-center gap-1">
-              <Sparkles size={11} />
-              <span>ACTIVE SIMULATION DESK</span>
+          {!isSidebarCollapsed && (
+            <div className="bg-[#fef3c7] border border-[#fde68a] rounded-xl p-3 text-[10px] font-semibold text-[#92400e] leading-relaxed animate-fade-in">
+              <div className="font-bold text-[#b45309] uppercase tracking-wide mb-0.5 flex items-center gap-1">
+                <Sparkles size={11} />
+                <span>ACTIVE SIMULATION DESK</span>
+              </div>
+              Pumping fuel, adding loads, or changing prices instantly calculates and renders ERP audit steps & volumes.
             </div>
-            Pumping fuel, adding loads, or changing prices instantly calculates and renders ERP audit steps & volumes.
-          </div>
+          )}
 
-          {session.isMobilePreview && !Capacitor.isNativePlatform() && (
+          {session.isMobilePreview && !Capacitor.isNativePlatform() && !isSidebarCollapsed && (
             <button
               onClick={handleBackToAdmin}
-              className="w-full py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[10px] font-black uppercase text-slate-700 tracking-wider rounded-lg transition-colors select-none"
+              className="w-full py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[10px] font-black uppercase text-slate-700 tracking-wider rounded-lg transition-colors select-none animate-fade-in"
             >
               Return to Web Admin
             </button>
@@ -282,11 +338,117 @@ export const MobileDispenserApp: React.FC = () => {
 
           <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 py-2.5 bg-white hover:bg-red-50/30 border border-red-200 hover:border-red-300 text-xs font-bold text-red-600 rounded-xl transition-all cursor-pointer select-none"
+            className={`w-full flex items-center justify-center gap-2 py-2.5 bg-white hover:bg-red-50/30 border border-red-200 hover:border-red-300 text-xs font-bold text-red-600 rounded-xl transition-all cursor-pointer select-none ${
+              isSidebarCollapsed ? 'p-0 h-10 w-10 mx-auto' : ''
+            }`}
+            title="Exit Operational session"
           >
             <LogOut size={14} />
-            <span>Exit Attendant Session</span>
+            {!isSidebarCollapsed && <span>Exit Operational session</span>}
           </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Sub-modules content render
+  const renderTankMonitorView = () => {
+    return (
+      <div className="space-y-6 text-left">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-2">
+          <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Underground Storage Tanks</h3>
+          <p className="text-xs text-slate-500 font-semibold leading-relaxed">Attendant read-only monitoring panel for live fuel levels and volume stock.</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {stationTanks.map(tank => {
+            const is91 = tank.fuelType === 'GAS91';
+            const capacity = tank.capacity || 25000;
+            const percentage = Math.min(100, (tank.currentLevel / capacity) * 100);
+
+            return (
+              <div key={tank.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                  <h4 className="text-xs font-black text-slate-800 uppercase">{tank.label}</h4>
+                  <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase font-mono ${
+                    is91 
+                      ? 'bg-[#e6fbf2] text-[#22c55e] border-[#bbf7d0]' 
+                      : 'bg-[#fef2f2] text-[#ef4444] border-[#fecaca]'
+                  }`}>
+                    {tank.fuelType}
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-mono">
+                    <span className="text-slate-400 font-sans font-bold">CURRENT VOLUME:</span>
+                    <strong className="text-slate-800 font-black">{tank.currentLevel.toLocaleString()} / {capacity.toLocaleString()} L</strong>
+                  </div>
+                  
+                  {/* Gauge Bar */}
+                  <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden border border-slate-200">
+                    <div 
+                      className={`h-full transition-all duration-300 ${is91 ? 'bg-emerald-500' : 'bg-red-500'}`}
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-500 font-semibold bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                  <div>
+                    <span>TEMP:</span>
+                    <strong className="block text-slate-800 mt-0.5">{tank.temperature ? tank.temperature.toFixed(1) : '32'} °C</strong>
+                  </div>
+                  <div>
+                    <span>WATER LEVEL:</span>
+                    <strong className="block text-slate-800 mt-0.5">{tank.waterLevel ? tank.waterLevel.toFixed(2) : '0.00'} m</strong>
+                  </div>
+                  <div className="text-right">
+                    <span>HEIGHT:</span>
+                    <strong className="block text-slate-800 mt-0.5">{Math.round((tank.currentLevel / capacity) * 1000)} mm</strong>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderShowPricesView = () => {
+    return (
+      <div className="space-y-6 text-left">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-2">
+          <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Station Fuel Prices</h3>
+          <p className="text-xs text-slate-500 font-semibold leading-relaxed">Official local fuel grades selling pricing parameters set by Central HQ.</p>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="bg-slate-50 border-b border-slate-200 px-5 py-4">
+            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Selling Rate Index</h4>
+          </div>
+          <div className="p-5 divide-y divide-slate-100">
+            {['GAS91', 'GAS95', 'GAS98', 'DIESEL'].map(grade => {
+              const price = activeStation?.fuelPricing[grade as FuelGrade] || 2.18;
+              const is91 = grade === 'GAS91';
+              
+              return (
+                <div key={grade} className="py-4 flex justify-between items-center first:pt-0 last:pb-0">
+                  <span className={`inline-block text-[9px] font-black px-2 py-0.5 rounded border uppercase font-mono ${
+                    is91 
+                      ? 'bg-[#e6fbf2] text-[#22c55e] border-[#bbf7d0]' 
+                      : 'bg-[#fef2f2] text-[#ef4444] border-[#fecaca]'
+                  }`}>
+                    {grade}
+                  </span>
+                  <span className="text-sm font-black font-mono text-[#6c5dd3]">
+                    SAR {price.toFixed(2)} / Litre
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     );
@@ -296,7 +458,9 @@ export const MobileDispenserApp: React.FC = () => {
     <div className="min-h-screen w-full bg-[#f1f5f9] text-slate-800 flex font-sans select-none overflow-x-hidden">
       
       {/* 1. PERSISTENT SIDEBAR - DISPLAYED ON TABLET/DESKTOP VIEWPORTS (>= 1024px) */}
-      <aside className="hidden lg:block w-64 shrink-0 border-r border-[#e2e8f0] shadow-sm bg-white h-screen sticky top-0">
+      <aside className={`hidden lg:block shrink-0 border-r border-[#e2e8f0] shadow-sm bg-white h-screen sticky top-0 transition-all duration-300 ${
+        isSidebarCollapsed ? 'w-20' : 'w-64'
+      }`}>
         {renderSidebar()}
       </aside>
 
@@ -304,24 +468,32 @@ export const MobileDispenserApp: React.FC = () => {
       <div className="flex-1 min-w-0 flex flex-col min-h-screen">
         
         {/* Top Header Bar */}
-        <header className="sticky top-0 bg-white border-b border-[#e2e8f0] px-5 py-4 z-40">
+        <header className="sticky top-0 bg-white border-b border-[#e2e8f0] px-5 py-4 z-45 shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {/* Hamburger drawer trigger (visible only on mobile viewports < 1024px) */}
               <button
                 onClick={() => setIsDrawerOpen(true)}
-                className="lg:hidden p-1.5 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-600 animate-fade-in"
+                className="lg:hidden p-1.5 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-600"
               >
                 <Menu size={18} />
               </button>
-              <h2 className="text-base font-black text-slate-900 tracking-wide uppercase">
-                {activeTab === 'pump_monitor' ? 'PUMP MONITOR' : 'TRANSACTIONS HISTORY'}
+              
+              {/* Active view title */}
+              <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-wide uppercase">
+                {activeTab === 'pump_monitor' 
+                  ? 'PUMP MONITOR' 
+                  : activeTab === 'transactions' 
+                  ? 'PUMP MONITOR' // Replicates the layout where log is inside or shares title
+                  : activeTab === 'tank_monitor'
+                  ? 'TANK MONITOR'
+                  : 'PRICE INDEX'}
               </h2>
               
               {/* Context Tag */}
               <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-slate-100 border border-slate-200 rounded-full text-xs font-semibold text-slate-600">
                 <MapPin size={11} className="text-[#6c5dd3]" />
-                <span>Station context: <strong className="text-slate-800">{activeStation?.name.split('-')[0].trim().toLowerCase() || 'jama'}</strong></span>
+                <span>Station context: <strong className="text-slate-800 font-bold font-mono">{activeStation?.name.split('-')[0].trim().toLowerCase() || 'jama'}</strong></span>
               </div>
             </div>
 
@@ -351,7 +523,11 @@ export const MobileDispenserApp: React.FC = () => {
         {/* Content Body Container */}
         <main className="flex-1 p-5 space-y-6">
           
-          {activeTab === 'pump_monitor' ? (
+          {activeTab === 'tank_monitor' && renderTankMonitorView()}
+          
+          {activeTab === 'show_prices' && renderShowPricesView()}
+
+          {activeTab === 'pump_monitor' && (
             /* =========================================================================
                PUMP MONITOR TAB
                ========================================================================= */
@@ -474,7 +650,7 @@ export const MobileDispenserApp: React.FC = () => {
                                 e.stopPropagation();
                                 setSelectedPump(pump);
                               }}
-                              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[9px] font-black uppercase tracking-wider border-none cursor-pointer shadow-xs select-none mt-2 font-sans transition-all text-center"
+                              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[9px] font-black uppercase tracking-wider border-none cursor-pointer shadow-xs select-none mt-2 font-sans transition-all text-center animate-fade-in"
                             >
                               Verify & Complete
                             </button>
@@ -562,11 +738,13 @@ export const MobileDispenserApp: React.FC = () => {
                 </div>
               </div>
             </>
-          ) : (
+          )}
+
+          {activeTab === 'transactions' && (
             /* =========================================================================
                TRANSACTIONS HISTORICAL LOG TAB
                ========================================================================= */
-            <div className="space-y-4 text-left">
+            <div className="space-y-4 text-left animate-fade-in">
               <div className="bg-white rounded-2xl border border-[#e2e8f0] shadow-sm p-5 space-y-4">
                 <div className="space-y-1">
                   <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Historical Transactions Log</h3>
@@ -594,7 +772,7 @@ export const MobileDispenserApp: React.FC = () => {
                   <select
                     value={txGradeFilter}
                     onChange={(e) => setTxGradeFilter(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:border-[#6c5dd3] focus:bg-white uppercase"
+                    className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:border-[#6c5dd3] focus:bg-white uppercase text-left outline-none"
                   >
                     <option value="ALL">All Products</option>
                     <option value="GAS91">GAS91 Only</option>
@@ -731,7 +909,7 @@ export const MobileDispenserApp: React.FC = () => {
       {/* 4. FLOATING SIMULATOR ACTIVATOR BUTTON */}
       <button
         onClick={() => setIsSimulatorOpen(true)}
-        className="fixed bottom-6 right-6 px-4 py-3 bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white rounded-full flex items-center gap-2 shadow-lg shadow-indigo-500/20 text-xs font-black uppercase tracking-wider cursor-pointer border-none select-none z-30 transition-all hover:scale-105 active:scale-95 animate-fade-in"
+        className="fixed bottom-6 right-6 px-4 py-3 bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white rounded-full flex items-center gap-2 shadow-lg shadow-indigo-500/20 text-xs font-black uppercase tracking-wider cursor-pointer border-none select-none z-30 transition-all hover:scale-105 active:scale-95 animate-fade-in animate-pulse"
       >
         <Sparkles size={14} />
         <span>Command Deck Simulator</span>
@@ -755,13 +933,13 @@ export const MobileDispenserApp: React.FC = () => {
               <X size={14} />
             </button>
 
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-3 pr-8 border-b border-slate-100 pb-2">
+            <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-3 pr-8 border-b border-slate-100 pb-2 font-sans">
               Nozzle Control No.{selectedPump.label.slice(-2)}
             </h3>
 
             {/* State logic display */}
             {selectedPump.status === 'PUMPING' ? (
-              <div className="space-y-4">
+              <div className="space-y-4 font-sans">
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center space-y-1">
                   <span className="text-[9px] font-black text-amber-600 uppercase tracking-wider animate-pulse">
                     ⚡ Fueling in progress
@@ -797,7 +975,7 @@ export const MobileDispenserApp: React.FC = () => {
                 </div>
               </div>
             ) : selectedPump.status === 'COMPLETED' ? (
-              <div className="space-y-4">
+              <div className="space-y-4 font-sans">
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center space-y-1">
                   <span className="text-[9px] font-black text-blue-600 uppercase tracking-wider">
                     ✓ Dispense Session Completed
@@ -836,7 +1014,7 @@ export const MobileDispenserApp: React.FC = () => {
                 </button>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-4 font-sans">
                 {/* Preset selectors */}
                 <div className="space-y-1.5">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Select Preconfigured Amount</span>
@@ -1005,7 +1183,7 @@ export const MobileDispenserApp: React.FC = () => {
             </button>
 
             <div className="text-center space-y-2 py-4 font-sans">
-              <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-500 shadow-xs">
+              <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-55 border border-[#bbf7d0] text-emerald-600 shadow-xs">
                 <CheckCircle size={28} />
               </div>
               <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Sale Logged & Synced</h3>
@@ -1083,16 +1261,16 @@ export const MobileDispenserApp: React.FC = () => {
               <X size={14} />
             </button>
 
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-3 pr-8 border-b border-slate-100 pb-2 flex items-center gap-1.5">
+            <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-3 pr-8 border-b border-slate-100 pb-2 flex items-center gap-1.5 font-sans">
               <Sparkles size={16} className="text-[#6c5dd3]" />
               <span>COMMAND DECK SIMULATOR</span>
             </h3>
 
-            <p className="text-[10px] text-slate-500 mb-4 font-semibold leading-relaxed">
+            <p className="text-[10px] text-slate-500 mb-4 font-semibold leading-relaxed font-sans">
               Use these tools to simulate live pump actions. Dispensed logs will automatically sync in real-time.
             </p>
 
-            <div className="space-y-3">
+            <div className="space-y-3 font-sans">
               {stationPumps.map(pump => {
                 const isIdle = pump.status === 'IDLE';
                 return (
