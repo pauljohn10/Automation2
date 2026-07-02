@@ -5,7 +5,16 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'remove-crossorigin',
+        transformIndexHtml(html) {
+          return html.replace(/\s*crossorigin\s*/g, ' ');
+        }
+      }
+    ],
     base: './',
     resolve: {
       alias: {
