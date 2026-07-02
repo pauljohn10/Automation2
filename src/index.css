@@ -1,1 +1,49 @@
 @import "tailwindcss";
+
+/* ============================================================================
+   NOOR FUEL AUTOMATION - CROSS-PLATFORM SYSTEM COMPATIBILITY LAYER
+   Failsafe HEX fallback rules for WebViews lacking native oklch() color support.
+   Ensures deep dark themes, glowing borders, and crisp legibility on all devices.
+   ============================================================================ */
+
+/* 1. Core Base Body Styling */
+body {
+  background-color: #090d16 !important;
+  color: #f1f5f9 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+/* 2. Text Color Fallbacks */
+.text-slate-100, .text-slate-205, .text-slate-200, .text-slate-105, .text-slate-150 { color: #f1f5f9 !important; }
+.text-slate-300, .text-slate-350, .text-slate-400 { color: #cbd5e1 !important; }
+.text-slate-500, .text-slate-550, .text-slate-600, .text-slate-650 { color: #64748b !important; }
+.text-slate-405, .text-slate-450 { color: #94a3b8 !important; }
+.text-\[\#8c7dfc\] { color: #8c7dfc !important; }
+.text-indigo-400, .text-indigo-300 { color: #818cf8 !important; }
+.text-emerald-400, .text-emerald-500 { color: #34d399 !important; }
+.text-amber-400, .text-amber-500 { color: #fbbf24 !important; }
+.text-red-400, .text-red-500 { color: #f87171 !important; }
+.text-blue-400, .text-blue-500 { color: #60a5fa !important; }
+
+/* 3. Background Color Fallbacks */
+.bg-slate-50, .bg-slate-100 { background-color: #f8fafc !important; }
+.bg-slate-800 { background-color: #1e293b !important; }
+.bg-slate-900 { background-color: #0f172a !important; }
+.bg-slate-950 { background-color: #020617 !important; }
+.bg-slate-850 { background-color: #1a2333 !important; }
+
+/* 4. Border Color Fallbacks */
+.border-slate-800 { border-color: #1e293b !important; }
+.border-slate-850 { border-color: #1e293b !important; }
+.border-slate-700 { border-color: #334155 !important; }
+.border-slate-600 { border-color: #475569 !important; }
+
+/* 5. Custom animations for loaders and glowing items */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(0.98); }
+}
+
+.animate-pulse {
+  animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite !important;
+}
