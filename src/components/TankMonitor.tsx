@@ -154,7 +154,8 @@ export const TankMonitor: React.FC = () => {
 
   // Handler for tank click (Rule 2)
   const handleTankClick = (tank: FuelTank) => {
-    if (session.role !== 'SUPER_ADMIN' && session.role !== 'ADMIN') {
+    const effectiveRole = session.originalRole || session.role;
+    if (effectiveRole !== 'SUPER_ADMIN' && effectiveRole !== 'ADMIN') {
       alert('Access Denied: Only Super Admin and Admin can configure tank telemetry.');
       return;
     }
@@ -171,7 +172,8 @@ export const TankMonitor: React.FC = () => {
     e.preventDefault();
     if (!selectedTankId) return;
 
-    if (session.role !== 'SUPER_ADMIN' && session.role !== 'ADMIN') {
+    const effectiveRole = session.originalRole || session.role;
+    if (effectiveRole !== 'SUPER_ADMIN' && effectiveRole !== 'ADMIN') {
       setValidationError('Access Denied: Only Super Admin and Admin can configure tank telemetry.');
       return;
     }
@@ -227,7 +229,8 @@ export const TankMonitor: React.FC = () => {
           const fuelColor = getFuelColor(tank.fuelType);
 
           // Render click border states strictly for SUPER_ADMIN and ADMIN
-          const isAuthorized = session.role === 'SUPER_ADMIN' || session.role === 'ADMIN';
+          const effectiveRole = session.originalRole || session.role;
+          const isAuthorized = effectiveRole === 'SUPER_ADMIN' || effectiveRole === 'ADMIN';
           const isHighlighted = tank.label === 'Tank 02';
 
           return (
@@ -350,13 +353,14 @@ export const TankMonitor: React.FC = () => {
                   <button 
                     onClick={(e) => {
                       e.stopPropagation(); // prevent opening configuration modal on click
-                      if (session.role === 'VIEWER' || session.role === 'OPERATOR') {
+                      const effectiveRole = session.originalRole || session.role;
+                      if (effectiveRole === 'VIEWER' || effectiveRole === 'OPERATOR') {
                         alert('Access Denied: You do not have permission to initiate moisture purges.');
                         return;
                       }
                       resetTankWater(tank.id);
                     }}
-                    disabled={session.role === 'VIEWER' || session.role === 'OPERATOR'}
+                    disabled={(session.originalRole || session.role) === 'VIEWER' || (session.originalRole || session.role) === 'OPERATOR'}
                     className="text-[10px] font-black text-amber-900 bg-amber-200 hover:bg-amber-300 px-2 py-1 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Purge Water
@@ -594,7 +598,7 @@ export const TankMonitor: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSaving || session.role === 'VIEWER' || session.role === 'OPERATOR'}
+                  disabled={isSaving || (session.originalRole || session.role) === 'VIEWER' || (session.originalRole || session.role) === 'OPERATOR'}
                   className="flex-1 text-xs font-black text-white bg-indigo-600 hover:bg-indigo-700 py-2.5 px-4 rounded-lg shadow-sm transition-all duration-200 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSaving ? (
