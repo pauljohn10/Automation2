@@ -16,6 +16,7 @@ import { StationsDirectory } from './components/StationsDirectory';
 import { AuditDashboard } from './components/AuditDashboard';
 import { LoginScreen } from './components/LoginScreen';
 import { UserManagement } from './components/UserManagement';
+import { MobileDispenserApp } from './components/MobileDispenserApp';
 
 function MainLayout() {
   const { session } = useFuelSystem();
@@ -90,6 +91,10 @@ function AppContent() {
 
   if (!session.isLoggedIn) {
     return <LoginScreen />;
+  }
+
+  if (session.role === 'OPERATOR' || session.isMobilePreview) {
+    return <MobileDispenserApp />;
   }
 
   return <MainLayout />;

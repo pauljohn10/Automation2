@@ -48,7 +48,7 @@ interface FuelSystemContextType {
   resetTankWater: (tankId: string) => void;
   triggerFuelDelivery: (tankId: string, volume: number) => { success: boolean; message: string };
   dispenseFuel: (pumpId: string, grade: FuelGrade, volume: number) => { success: boolean; message: string };
-  confirmDispenseTransaction: (pumpId: string) => { success: boolean; message: string };
+  confirmDispenseTransaction: (pumpId: string, operator?: string, customer?: string) => { success: boolean; message: string };
   addCustomAuditLog: (action: string, details: string, stationId?: string) => void;
   clearAllData: () => void;
   refreshAllFromSupabase: () => Promise<{ success: boolean; message: string }>;
@@ -87,6 +87,10 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setSessionState(newSession);
     try {
       sessionStorage.setItem('fuel_user_session', JSON.stringify(newSession));
+      if (newSession.isLoggedIn === false) {
+        const client = getSupabaseClient();
+        client.auth.signOut().catch(err => console.warn('Supabase signout warning:', err));
+      }
     } catch {}
   };
 
@@ -633,7 +637,7 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   };
 
-  const confirmDispenseTransaction = (pumpId: string) => {
+  const confirmDispenseTransaction = (pumpId: string, operator?: string, customer?: string) => {
     const pump = pumps.find(p => p.id === pumpId);
     if (!pump) return { success: false, message: 'Pump setup error' };
     if (pump.status !== 'COMPLETED') {
@@ -672,7 +676,9 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       waterLevel: supplyTank?.waterLevel || 0.00,
       pricePerLitre: unitPrice,
       amount: finalBill,
-      status: 'FINISHED'
+      status: 'FINISHED',
+      operator: operator || session.name || 'Station Operator',
+      customer: customer || undefined
     };
 
     setTransactions(prev => [endTx, ...prev]);

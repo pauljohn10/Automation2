@@ -84,6 +84,8 @@ CREATE TABLE sales_transactions (
     "pricePerLitre" NUMERIC NOT NULL CHECK ("pricePerLitre" >= 0),
     amount NUMERIC NOT NULL CHECK (amount >= 0),
     status TEXT NOT NULL CHECK (status IN ('STARTED', 'FINISHED')),
+    operator TEXT,
+    customer TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

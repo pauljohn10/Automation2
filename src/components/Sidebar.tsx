@@ -16,7 +16,7 @@ import {
   ShieldAlert, 
   Coins, 
   Wrench,
-  ToggleLeft,
+  Smartphone,
   LogOut,
   Users,
   ChevronLeft,
@@ -29,7 +29,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) => {
-  const { session, activeStation, setSession } = useFuelSystem();
+  const { session, activeStation, setSession, stations } = useFuelSystem();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const isHQ = (session.role === 'SUPER_ADMIN' || session.role === 'ADMIN' || session.role === 'VIEWER') && !session.isStationContext;
@@ -42,6 +42,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
     setSession({
       ...session,
       isLoggedIn: false
+    });
+  };
+
+  const handleSwitchToMobile = () => {
+    const activeId = session.activeStationId || (stations[0]?.id || 'st-01');
+    setSession({
+      ...session,
+      activeStationId: activeId,
+      isMobilePreview: true
     });
   };
 
@@ -287,6 +296,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
             <Sparkles size={14} className="text-amber-600 animate-spin-slow" />
           </div>
         )}
+
+        <button
+          onClick={handleSwitchToMobile}
+          className={`w-full bg-[#f0fdf4] hover:bg-[#dcfce7] text-[#166534] rounded-lg text-xs font-bold transition-all flex items-center justify-center border border-[#bbf7d0] ${
+            isSidebarCollapsed ? 'h-10 w-10 p-0' : 'p-2 gap-2'
+          }`}
+          title={isSidebarCollapsed ? "Mobile Attendant View" : undefined}
+        >
+          <Smartphone size={13} className="shrink-0" />
+          {!isSidebarCollapsed && <span>Mobile Attendant View</span>}
+        </button>
 
         <button
           onClick={handleLogout}

@@ -56,6 +56,8 @@ export interface SalesTransaction {
   pricePerLitre: number;
   amount: number;
   status: 'STARTED' | 'FINISHED';
+  operator?: string;
+  customer?: string;
 }
 
 export interface AuditLog {
@@ -76,4 +78,5 @@ export interface UserSession {
   isLoggedIn?: boolean;
   originalRole?: 'SUPER_ADMIN' | 'ADMIN' | 'VIEWER' | 'STATION_ADMIN' | 'OPERATOR';
   isStationContext?: boolean;
+  isMobilePreview?: boolean;
 }

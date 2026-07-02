@@ -500,9 +500,33 @@ export async function insertTransactionInSupabase(tx: SalesTransaction): Promise
       waterLevel: tx.waterLevel !== undefined ? tx.waterLevel : null,
       pricePerLitre: tx.pricePerLitre,
       amount: tx.amount,
-      status: tx.status
+      status: tx.status,
+      operator: tx.operator || null,
+      customer: tx.customer || null
     });
-    if (error) console.error('Supabase write error (transaction):', error);
+    
+    if (error) {
+      console.warn('Supabase write error (transaction) with columns, retrying without:', error);
+      // Fallback: try inserting without operator/customer in case columns don't exist yet
+      const { error: retryError } = await client.from('sales_transactions').insert({
+        id: tx.id,
+        stationId: tx.stationId,
+        timestamp: tx.timestamp,
+        pumpId: tx.pumpId,
+        fuelType: tx.fuelType,
+        volume: tx.volume,
+        heightBefore: tx.heightBefore !== undefined ? tx.heightBefore : null,
+        heightAfter: tx.heightAfter !== undefined ? tx.heightAfter : null,
+        temperature: tx.temperature !== undefined ? tx.temperature : null,
+        waterLevel: tx.waterLevel !== undefined ? tx.waterLevel : null,
+        pricePerLitre: tx.pricePerLitre,
+        amount: tx.amount,
+        status: tx.status
+      });
+      if (retryError) {
+        console.error('Supabase fallback write error (transaction):', retryError);
+      }
+    }
   } catch (err) {
     console.error('Exception saving transaction:', err);
   }
