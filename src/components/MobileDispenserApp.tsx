@@ -24,12 +24,9 @@ import {
   X, 
   Calendar, 
   ClipboardList,
-  Menu,
-  ChevronLeft,
-  ChevronRight,
-  Activity,
-  Sparkles,
-  Database
+  Play,
+  CheckCircle2,
+  Sparkles
 } from 'lucide-react';
 
 export const MobileDispenserApp: React.FC = () => {
@@ -54,25 +51,24 @@ export const MobileDispenserApp: React.FC = () => {
 
   const stationTanks = tanks.filter(t => t.stationId === session.activeStationId);
 
-  // States
-  const [activeTab, setActiveTab] = useState<string>('pump_monitor');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-  const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
+  // Bottom Navigation tab: 'pumps' or 'transactions'
+  const [activeTab, setActiveTab] = useState<'pumps' | 'transactions'>('pumps');
 
-  // Search & Filter state for Transactions page
+  // Search & Filter states for Transactions Log page
   const [txSearchText, setTxSearchText] = useState<string>('');
   const [txGradeFilter, setTxGradeFilter] = useState<string>('ALL');
   const [txSortOrder, setTxSortOrder] = useState<'newest' | 'oldest'>('newest');
   
-  // Modals / Overlays
+  // Modal states
   const [selectedPump, setSelectedPump] = useState<FuelPump | null>(null);
   const [viewedTx, setViewedTx] = useState<SalesTransaction | null>(null);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState<boolean>(false);
 
-  // Dispenser input states
+  // Dispenser flow states
   const [amountSAR, setAmountSAR] = useState<string>('50');
   const [customerName, setCustomerName] = useState<string>('');
   const [dispenseError, setDispenseError] = useState<string | null>(null);
+  const [selectedNozzle, setSelectedNozzle] = useState<'A' | 'B'>('A');
   
   // Completed receipt display state
   const [completedReceipt, setCompletedReceipt] = useState<{
@@ -89,8 +85,8 @@ export const MobileDispenserApp: React.FC = () => {
   } | null>(null);
 
   // Auto-calculated helpers
-  const getSelectedPumpPrice = (pumpObj: FuelPump): number => {
-    const grade = pumpObj.fuelType || 'GAS91';
+  const getSelectedPumpPrice = (pumpObj: FuelPump, nozzle: 'A' | 'B'): number => {
+    const grade = nozzle === 'A' ? 'GAS91' : 'GAS95';
     return activeStation?.fuelPricing[grade] || 2.18;
   };
 
@@ -105,7 +101,7 @@ export const MobileDispenserApp: React.FC = () => {
     if (!selectedPump) return;
     setDispenseError(null);
 
-    const price = getSelectedPumpPrice(selectedPump);
+    const price = getSelectedPumpPrice(selectedPump, selectedNozzle);
     const amount = parseFloat(amountSAR);
     if (isNaN(amount) || amount <= 0) {
       setDispenseError('Enter a valid purchase amount.');
@@ -113,7 +109,7 @@ export const MobileDispenserApp: React.FC = () => {
     }
 
     const liters = amount / price;
-    const grade = selectedPump.fuelType || 'GAS91';
+    const grade = selectedNozzle === 'A' ? 'GAS91' : 'GAS95';
 
     // Verify stock
     const matchingTanks = stationTanks.filter(t => t.fuelType === grade);
@@ -131,24 +127,23 @@ export const MobileDispenserApp: React.FC = () => {
   };
 
   // Complete dispensing action
-  const handleCompleteDispensing = () => {
-    if (!selectedPump) return;
+  const handleCompleteDispensing = (pumpObj: FuelPump) => {
     setDispenseError(null);
 
-    const grade = selectedPump.activeFuelGrade || selectedPump.fuelType || 'GAS91';
+    const grade = pumpObj.activeFuelGrade || pumpObj.fuelType || 'GAS91';
     const price = activeStation?.fuelPricing[grade] || 2.18;
-    const vol = selectedPump.volumeThisSession || 0;
+    const vol = pumpObj.volumeThisSession || 0;
     const amt = vol * price;
     const attendant = session.name;
 
-    const res = confirmDispenseTransaction(selectedPump.id, attendant, customerName || undefined);
+    const res = confirmDispenseTransaction(pumpObj.id, attendant, customerName || undefined);
     if (res.success) {
       // Build receipt
       setCompletedReceipt({
         txNumber: `TX-${Date.now().toString().slice(-8)}`,
         timestamp: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
         stationName: activeStation?.name || 'Assigned Station',
-        pumpLabel: selectedPump.label,
+        pumpLabel: pumpObj.label,
         fuelType: grade,
         price: price,
         amount: amt,
@@ -156,7 +151,7 @@ export const MobileDispenserApp: React.FC = () => {
         operator: attendant,
         customer: customerName || undefined
       });
-      // Clear selections
+      // Clear inputs
       setSelectedPump(null);
       setAmountSAR('50');
       setCustomerName('');
@@ -165,7 +160,7 @@ export const MobileDispenserApp: React.FC = () => {
     }
   };
 
-  // Syncer to auto-update selected pump state details if active pumping transitions in background
+  // Sync state if active pumping transitions in background
   useEffect(() => {
     if (selectedPump) {
       const livePump = pumps.find(p => p.id === selectedPump.id);
@@ -182,911 +177,549 @@ export const MobileDispenserApp: React.FC = () => {
     });
   };
 
-  const handleBackToAdmin = () => {
-    setSession({
-      ...session,
-      isMobilePreview: false
-    });
-  };
+  // SVG Custom Nozzle icon matching the mockup shapes
+  const renderNozzleBoxSVG = (letter: 'A' | 'B', isActive: boolean, activeColorClass: string) => {
+    let borderStyle = 'border-slate-800 bg-[#162032] text-slate-500';
+    let iconColor = 'text-slate-500';
+    let textColor = 'text-slate-500';
 
-  // Render Sidebar Content (shared between persistent desktop/tablet layout and sliding mobile drawer)
-  const renderSidebar = () => {
-    const activeClass = 'bg-[#efecfe] text-[#6c5dd3] border-l-4 border-[#6c5dd3] font-bold';
-    const inactiveClass = 'text-slate-650 hover:bg-slate-50 border-l-4 border-transparent';
+    if (isActive) {
+      if (activeColorClass === 'emerald') {
+        borderStyle = 'border-emerald-500 bg-emerald-950/20 text-emerald-400';
+        iconColor = 'text-emerald-400';
+        textColor = 'text-emerald-400';
+      } else if (activeColorClass === 'amber') {
+        borderStyle = 'border-amber-500 bg-amber-950/20 text-amber-400';
+        iconColor = 'text-amber-400';
+        textColor = 'text-amber-400';
+      } else if (activeColorClass === 'blue') {
+        borderStyle = 'border-blue-500 bg-blue-950/20 text-blue-400';
+        iconColor = 'text-blue-400';
+        textColor = 'text-blue-400';
+      }
+    }
 
     return (
-      <div className="h-full flex flex-col justify-between bg-white text-slate-800 text-left select-none">
-        <div className="space-y-6">
-          {/* Logo & Brand Header */}
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#6c5dd3] flex items-center justify-center text-white font-black text-xl shadow-md">
-                F
-              </div>
-              {!isSidebarCollapsed && (
-                <div className="leading-tight animate-fade-in">
-                  <h1 className="text-sm font-black tracking-wider text-slate-900 uppercase">
-                    {activeStation?.name.split('-')[0].trim() || 'JAMA'}
-                  </h1>
-                  <span className="text-[10px] text-slate-500 font-extrabold tracking-widest uppercase block">
-                    SUPERVISOR
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Collapse toggle button */}
-            <button
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="hidden lg:flex p-1.5 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-500 transition-colors"
-            >
-              {isSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-            </button>
-          </div>
-
-          {/* Attendant User Profile Card */}
-          {!isSidebarCollapsed && (
-            <div className="px-4 animate-fade-in">
-              <div className="bg-[#f5f3ff] border border-[#ddd6fe] rounded-xl p-3.5 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-[#6c5dd3] text-white font-bold flex items-center justify-center uppercase text-sm">
-                  {session.name.slice(0, 1)}
-                </div>
-                <div className="text-left min-w-0 flex-1">
-                  <h4 className="text-xs font-black text-slate-900 truncate">{session.name.split('@')[0]}</h4>
-                  <span className="text-[8px] font-black text-[#6c5dd3] tracking-wider uppercase block mt-0.5">
-                    STATION SUPERVISOR
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Navigation Links */}
-          <div className="space-y-1">
-            {!isSidebarCollapsed && (
-              <div className="text-[9px] font-black text-slate-400 tracking-widest uppercase px-5 mb-2.5 animate-fade-in">
-                STATION TELEMETRY
-              </div>
-            )}
-            
-            <button
-              onClick={() => {
-                setActiveTab('tank_monitor');
-                setIsDrawerOpen(false);
-              }}
-              className={`w-full flex items-center gap-3.5 px-5 py-3 text-xs transition-all ${
-                isSidebarCollapsed ? 'justify-center py-4' : ''
-              } ${
-                activeTab === 'tank_monitor' ? activeClass : inactiveClass
-              }`}
-              title="Tank Monitor"
-            >
-              <Activity size={16} className="shrink-0" />
-              {!isSidebarCollapsed && <span className="animate-fade-in">Tank Monitor</span>}
-            </button>
-
-            <button
-              onClick={() => {
-                setActiveTab('pump_monitor');
-                setIsDrawerOpen(false);
-              }}
-              className={`w-full flex items-center gap-3.5 px-5 py-3 text-xs transition-all ${
-                isSidebarCollapsed ? 'justify-center py-4' : ''
-              } ${
-                activeTab === 'pump_monitor' ? activeClass : inactiveClass
-              }`}
-              title="Pump Monitor"
-            >
-              <Fuel size={16} className="shrink-0" />
-              {!isSidebarCollapsed && <span className="animate-fade-in">Pump Monitor</span>}
-            </button>
-
-            <button
-              onClick={() => {
-                setActiveTab('transactions');
-                setIsDrawerOpen(false);
-              }}
-              className={`w-full flex items-center gap-3.5 px-5 py-3 text-xs transition-all ${
-                isSidebarCollapsed ? 'justify-center py-4' : ''
-              } ${
-                activeTab === 'transactions' ? activeClass : inactiveClass
-              }`}
-              title="Tank Reporting Logs"
-            >
-              <ClipboardList size={16} className="shrink-0" />
-              {!isSidebarCollapsed && <span className="animate-fade-in">Tank Reporting Logs</span>}
-            </button>
-
-            <button
-              onClick={() => {
-                setActiveTab('show_prices');
-                setIsDrawerOpen(false);
-              }}
-              className={`w-full flex items-center gap-3.5 px-5 py-3 text-xs transition-all ${
-                isSidebarCollapsed ? 'justify-center py-4' : ''
-              } ${
-                activeTab === 'show_prices' ? activeClass : inactiveClass
-              }`}
-              title="Show Prices Index"
-            >
-              <Receipt size={16} className="shrink-0" />
-              {!isSidebarCollapsed && <span className="animate-fade-in">Show Prices Index</span>}
-            </button>
-          </div>
-        </div>
-
-        {/* Bottom Helper & Logout Exit Button */}
-        <div className="p-4 space-y-3.5 border-t border-slate-100 bg-slate-50/50">
-          {!isSidebarCollapsed && (
-            <div className="bg-[#fef3c7] border border-[#fde68a] rounded-xl p-3 text-[10px] font-semibold text-[#92400e] leading-relaxed animate-fade-in">
-              <div className="font-bold text-[#b45309] uppercase tracking-wide mb-0.5 flex items-center gap-1">
-                <Sparkles size={11} />
-                <span>ACTIVE SIMULATION DESK</span>
-              </div>
-              Pumping fuel, adding loads, or changing prices instantly calculates and renders ERP audit steps & volumes.
-            </div>
-          )}
-
-          {session.isMobilePreview && !Capacitor.isNativePlatform() && !isSidebarCollapsed && (
-            <button
-              onClick={handleBackToAdmin}
-              className="w-full py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[10px] font-black uppercase text-slate-700 tracking-wider rounded-lg transition-colors select-none animate-fade-in"
-            >
-              Return to Web Admin
-            </button>
-          )}
-
-          <button
-            onClick={handleLogout}
-            className={`w-full flex items-center justify-center gap-2 py-2.5 bg-white hover:bg-red-50/30 border border-red-200 hover:border-red-300 text-xs font-bold text-red-600 rounded-xl transition-all cursor-pointer select-none ${
-              isSidebarCollapsed ? 'p-0 h-10 w-10 mx-auto' : ''
-            }`}
-            title="Exit Operational session"
-          >
-            <LogOut size={14} />
-            {!isSidebarCollapsed && <span>Exit Operational session</span>}
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  // Sub-modules content render
-  const renderTankMonitorView = () => {
-    return (
-      <div className="space-y-6 text-left">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-2">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Underground Storage Tanks</h3>
-          <p className="text-xs text-slate-500 font-semibold leading-relaxed">Attendant read-only monitoring panel for live fuel levels and volume stock.</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {stationTanks.map(tank => {
-            const is91 = tank.fuelType === 'GAS91';
-            const capacity = tank.capacity || 25000;
-            const percentage = Math.min(100, (tank.currentLevel / capacity) * 100);
-
-            return (
-              <div key={tank.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
-                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                  <h4 className="text-xs font-black text-slate-800 uppercase">{tank.label}</h4>
-                  <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase font-mono ${
-                    is91 
-                      ? 'bg-[#e6fbf2] text-[#22c55e] border-[#bbf7d0]' 
-                      : 'bg-[#fef2f2] text-[#ef4444] border-[#fecaca]'
-                  }`}>
-                    {tank.fuelType}
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs font-mono">
-                    <span className="text-slate-400 font-sans font-bold">CURRENT VOLUME:</span>
-                    <strong className="text-slate-800 font-black">{tank.currentLevel.toLocaleString()} / {capacity.toLocaleString()} L</strong>
-                  </div>
-                  
-                  {/* Gauge Bar */}
-                  <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden border border-slate-200">
-                    <div 
-                      className={`h-full transition-all duration-300 ${is91 ? 'bg-emerald-500' : 'bg-red-500'}`}
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-500 font-semibold bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                  <div>
-                    <span>TEMP:</span>
-                    <strong className="block text-slate-800 mt-0.5">{tank.temperature ? tank.temperature.toFixed(1) : '32'} °C</strong>
-                  </div>
-                  <div>
-                    <span>WATER LEVEL:</span>
-                    <strong className="block text-slate-800 mt-0.5">{tank.waterLevel ? tank.waterLevel.toFixed(2) : '0.00'} m</strong>
-                  </div>
-                  <div className="text-right">
-                    <span>HEIGHT:</span>
-                    <strong className="block text-slate-800 mt-0.5">{Math.round((tank.currentLevel / capacity) * 1000)} mm</strong>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  const renderShowPricesView = () => {
-    return (
-      <div className="space-y-6 text-left">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-2">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Station Fuel Prices</h3>
-          <p className="text-xs text-slate-500 font-semibold leading-relaxed">Official local fuel grades selling pricing parameters set by Central HQ.</p>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-          <div className="bg-slate-50 border-b border-slate-200 px-5 py-4">
-            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Selling Rate Index</h4>
-          </div>
-          <div className="p-5 divide-y divide-slate-100">
-            {['GAS91', 'GAS95', 'GAS98', 'DIESEL'].map(grade => {
-              const price = activeStation?.fuelPricing[grade as FuelGrade] || 2.18;
-              const is91 = grade === 'GAS91';
-              
-              return (
-                <div key={grade} className="py-4 flex justify-between items-center first:pt-0 last:pb-0">
-                  <span className={`inline-block text-[9px] font-black px-2 py-0.5 rounded border uppercase font-mono ${
-                    is91 
-                      ? 'bg-[#e6fbf2] text-[#22c55e] border-[#bbf7d0]' 
-                      : 'bg-[#fef2f2] text-[#ef4444] border-[#fecaca]'
-                  }`}>
-                    {grade}
-                  </span>
-                  <span className="text-sm font-black font-mono text-[#6c5dd3]">
-                    SAR {price.toFixed(2)} / Litre
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+      <div className={`w-10 h-11 rounded-lg border flex flex-col items-center justify-between py-1 transition-all ${borderStyle}`}>
+        <Fuel size={12} className={iconColor} />
+        <span className="text-[8px] font-black mt-0.5 leading-none">{letter}</span>
       </div>
     );
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#f1f5f9] text-slate-800 flex font-sans select-none overflow-x-hidden">
+    <div className="min-h-screen w-full bg-[#090d16] text-[#f1f5f9] flex flex-col justify-between font-sans select-none overflow-x-hidden">
       
-      {/* 1. PERSISTENT SIDEBAR - DISPLAYED ON TABLET/DESKTOP VIEWPORTS (>= 1024px) */}
-      <aside className={`hidden lg:block shrink-0 border-r border-[#e2e8f0] shadow-sm bg-white h-screen sticky top-0 transition-all duration-300 ${
-        isSidebarCollapsed ? 'w-20' : 'w-64'
-      }`}>
-        {renderSidebar()}
-      </aside>
-
-      {/* 2. MAIN WORKSPACE CONTENT CONTAINER */}
-      <div className="flex-1 min-w-0 flex flex-col min-h-screen">
+      {/* 1. SCROLLABLE CORE VIEWPORT */}
+      <div className="flex-1 w-full max-w-md mx-auto flex flex-col min-h-screen pb-20">
         
-        {/* Top Header Bar */}
-        <header className="sticky top-0 bg-white border-b border-[#e2e8f0] px-5 py-4 z-45 shrink-0">
+        {/* App Bar Header */}
+        <header className="sticky top-0 bg-[#090d16]/95 backdrop-blur-md px-5 py-4 space-y-3 z-40 border-b border-slate-900 text-left">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {/* Hamburger drawer trigger (visible only on mobile viewports < 1024px) */}
-              <button
-                onClick={() => setIsDrawerOpen(true)}
-                className="lg:hidden p-1.5 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-600"
-              >
-                <Menu size={18} />
-              </button>
-              
-              {/* Active view title */}
-              <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-wide uppercase">
-                {activeTab === 'pump_monitor' 
-                  ? 'PUMP MONITOR' 
-                  : activeTab === 'transactions' 
-                  ? 'PUMP MONITOR' // Replicates the layout where log is inside or shares title
-                  : activeTab === 'tank_monitor'
-                  ? 'TANK MONITOR'
-                  : 'PRICE INDEX'}
-              </h2>
-              
-              {/* Context Tag */}
-              <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-slate-100 border border-slate-200 rounded-full text-xs font-semibold text-slate-600">
-                <MapPin size={11} className="text-[#6c5dd3]" />
-                <span>Station context: <strong className="text-slate-800 font-bold font-mono">{activeStation?.name.split('-')[0].trim().toLowerCase() || 'jama'}</strong></span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              {/* Database sync tag */}
-              <div className="flex items-center gap-1.5 px-3 py-1 bg-[#f0fdf4] border border-[#bbf7d0] rounded-full text-[10px] font-black text-[#166534] uppercase tracking-wider">
-                <span className="w-1.5 h-1.5 bg-[#22c55e] rounded-full animate-pulse"></span>
-                <span>Database Live</span>
-              </div>
-              
-              {/* Current Date/Time */}
-              <div className="hidden md:block text-xs font-mono font-bold text-slate-500">
-                {new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })} | {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
-              </div>
-
-              {/* Attendant avatar circle tag */}
-              <div className="flex items-center gap-2">
-                <span className="hidden sm:block text-xs font-bold text-slate-700">{session.name.split('@')[0]}</span>
-                <div className="w-8 h-8 rounded-full bg-[#6c5dd3] text-white flex items-center justify-center font-bold uppercase text-xs shadow-xs">
-                  {session.name.slice(0, 1)}
+            <h1 className="text-lg font-black text-white tracking-wide">Noor Mobile</h1>
+            
+            {/* Attendant User Badge Pill */}
+            <div className="bg-[#1e293b]/70 border border-slate-800 rounded-full px-3 py-1 flex items-center gap-2">
+              <div className="relative">
+                <div className="w-6 h-6 rounded-full bg-[#6c5dd3] text-white flex items-center justify-center font-bold uppercase text-[10px]">
+                  {session.name.slice(0, 2).toUpperCase()}
                 </div>
+                <span className="absolute bottom-0 right-0 w-2 h-2 bg-[#22c55e] rounded-full border border-slate-900"></span>
+              </div>
+              <div className="text-left leading-none">
+                <h4 className="text-[10px] font-black text-white truncate max-w-[70px]">{session.name.split('@')[0]}</h4>
+                <span className="text-[8px] font-bold text-emerald-400 uppercase tracking-widest block mt-0.5">Operator</span>
               </div>
             </div>
           </div>
+
+          {/* Active Station Context Bar */}
+          <div className="flex items-center gap-1.5 text-xs text-slate-400 font-semibold pl-0.5">
+            <MapPin size={12} className="text-[#8c7dfc] shrink-0" />
+            <span>Active Station: <strong className="text-slate-200">{activeStation?.name || 'Al Noor - Noor Abha'}</strong></span>
+          </div>
         </header>
 
-        {/* Content Body Container */}
-        <main className="flex-1 p-5 space-y-6">
+        {/* Dynamic content rendering wrapper */}
+        <main className="flex-1 px-5 py-5 space-y-4">
           
-          {activeTab === 'tank_monitor' && renderTankMonitorView()}
-          
-          {activeTab === 'show_prices' && renderShowPricesView()}
-
-          {activeTab === 'pump_monitor' && (
+          {activeTab === 'pumps' ? (
             /* =========================================================================
-               PUMP MONITOR TAB
+               PUMP LIST TAB
                ========================================================================= */
-            <>
-              {/* Top Banner Card: FUEL DISPENSATION ASSETS */}
-              <div className="bg-[#0d1321] rounded-2xl p-5 text-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border border-slate-850 shadow-md">
-                <div className="space-y-1 text-left">
-                  <div className="flex items-center gap-2 text-sm font-black uppercase tracking-wider text-slate-100">
-                    <span className="w-2.5 h-2.5 bg-[#22c55e] rounded-full"></span>
-                    <span>Fuel Dispensation Assets</span>
-                  </div>
-                  <p className="text-xs text-slate-400 font-semibold leading-relaxed">
-                    1 Dual-Nozzle Island Dispensers | 1 Petrol 91 Nozzles | 1 Petrol 95 Nozzles
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="px-3 py-1 bg-[#102a1e] border border-[#22c55e]/30 rounded-lg text-[10px] font-black text-[#22c55e] uppercase tracking-wider font-mono">
-                    1 x Petrol 91 Nozzles
-                  </span>
-                  <span className="px-3 py-1 bg-[#3b1212] border border-[#ef4444]/30 rounded-lg text-[10px] font-black text-[#ef4444] uppercase tracking-wider font-mono">
-                    1 x Petrol 95 Nozzles
-                  </span>
-                </div>
+            stationPumps.length === 0 ? (
+              <div className="py-16 text-center text-slate-500 italic text-xs font-semibold border border-dashed border-slate-800 rounded-2xl">
+                No active dispenser nozzles configured at this station.
               </div>
+            ) : (
+              stationPumps.map((pump) => {
+                const isIdle = pump.status === 'IDLE';
+                const isPumping = pump.status === 'PUMPING';
+                const isCompleted = pump.status === 'COMPLETED';
+                const price = activeStation?.fuelPricing[pump.fuelType || 'GAS91'] || 2.18;
 
-              {/* Dispenser Cards Layout */}
-              <div className="bg-[#0d1321] rounded-2xl overflow-hidden border border-slate-850 shadow-lg text-left">
-                {/* Header */}
-                <div className="bg-[#121927] border-b border-slate-850 px-5 py-3.5 flex justify-between items-center text-xs font-black uppercase text-slate-200 tracking-wider font-mono">
-                  <span>DISPENSER D01</span>
-                  <span className="text-slate-400 font-semibold text-[10px]">DUAL NOZZLE ISLAND</span>
-                </div>
+                // Color mappings based on mockup
+                let cardBorder = 'border-slate-800 bg-[#111827]/75';
+                let nozzleColor = 'grey';
 
-                {/* Nodes Grid columns */}
-                <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-5 bg-slate-900/30">
-                  {stationPumps.map((pump) => {
-                    const price = activeStation?.fuelPricing[pump.fuelType || 'GAS91'] || 2.18;
-                    const is91 = pump.fuelType === 'GAS91';
-                    const isPumping = pump.status === 'PUMPING';
-                    const isCompleted = pump.status === 'COMPLETED';
+                if (isIdle) {
+                  cardBorder = 'border-[#22c55e] shadow-lg shadow-emerald-950/10';
+                  nozzleColor = 'emerald';
+                } else if (isPumping) {
+                  cardBorder = 'border-[#f97316] shadow-lg shadow-orange-950/10';
+                  nozzleColor = 'amber';
+                } else if (isCompleted) {
+                  cardBorder = 'border-[#3b82f6] shadow-lg shadow-blue-950/10';
+                  nozzleColor = 'blue';
+                }
 
-                    // Node styling based on state
-                    let nodeBorder = 'border-slate-800';
-                    let nodeBg = 'bg-white';
-                    let statusLabel = 'Available';
-                    let statusColor = 'bg-[#22c55e]';
-                    let statusTextClass = 'text-[#22c55e]';
-
-                    if (isPumping) {
-                      nodeBorder = 'border-amber-500';
-                      nodeBg = 'bg-amber-50/20';
-                      statusLabel = 'Dispensing';
-                      statusColor = 'bg-amber-500 animate-pulse';
-                      statusTextClass = 'text-amber-500 font-black animate-pulse';
-                    } else if (isCompleted) {
-                      nodeBorder = 'border-blue-500';
-                      nodeBg = 'bg-blue-50/20';
-                      statusLabel = 'Pumping Done';
-                      statusColor = 'bg-blue-500';
-                      statusTextClass = 'text-blue-500 font-black';
-                    }
-
-                    return (
-                      <div
-                        key={pump.id}
-                        onClick={() => setSelectedPump(pump)}
-                        className={`border rounded-xl p-5 ${nodeBg} ${nodeBorder} hover:shadow-md transition-all cursor-pointer relative shadow-sm`}
-                      >
-                        <div className="space-y-4">
-                          {/* Nozzle Header Row */}
-                          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                            <div className="flex items-center gap-2">
-                              <span className={`w-2 h-2 rounded-full ${statusColor}`}></span>
-                              <span className="text-xs font-black text-slate-800 uppercase tracking-wide">
-                                {pump.label === 'Nozzle 1' ? 'Nozzle 01' : 'Nozzle 02'}
-                              </span>
-                            </div>
-                            <span className={`text-[10px] font-black uppercase tracking-wider ${statusTextClass}`}>
-                              {statusLabel}
-                            </span>
+                return (
+                  <div 
+                    key={pump.id}
+                    className={`border rounded-2xl p-5 text-left transition-all ${cardBorder}`}
+                  >
+                    <div className="space-y-4">
+                      {/* Top Row: Pump details, state bullet & nozzle selector layout */}
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <h3 className="text-base font-black text-white">{pump.label === 'Nozzle 1' ? 'Pump 01' : pump.label === 'Nozzle 2' ? 'Pump 02' : 'Pump 03'}</h3>
+                          <div className="flex items-center gap-1.5 text-xs font-bold leading-none">
+                            {isIdle && (
+                              <>
+                                <span className="w-1.5 h-1.5 bg-[#22c55e] rounded-full"></span>
+                                <span className="text-[#22c55e]">Available</span>
+                              </>
+                            )}
+                            {isPumping && (
+                              <>
+                                <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></span>
+                                <span className="text-orange-500">Dispensing</span>
+                              </>
+                            )}
+                            {isCompleted && (
+                              <>
+                                <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                                <span className="text-blue-500">Pumping Done</span>
+                              </>
+                            )}
                           </div>
+                        </div>
 
-                          {/* Nozzle operational fields */}
-                          <div className="grid grid-cols-3 gap-3 items-center">
-                            <div>
-                              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest block">PRODUCT</span>
-                              <span className={`inline-block text-[10px] font-black px-2 py-0.5 rounded border uppercase mt-1 font-mono ${
-                                is91 
-                                  ? 'bg-[#e6fbf2] text-[#22c55e] border-[#bbf7d0]' 
-                                  : 'bg-[#fef2f2] text-[#ef4444] border-[#fecaca]'
-                              }`}>
-                                {pump.fuelType || 'GAS91'}
-                              </span>
-                            </div>
-
-                            <div>
-                              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest block">AMOUNT</span>
-                              <span className="text-xs font-black font-mono text-[#6c5dd3] block mt-1">
-                                {isPumping || isCompleted 
-                                  ? `SAR ${((pump.volumeThisSession || 0) * price).toFixed(2)}` 
-                                  : '0.00 SAR'}
-                              </span>
-                            </div>
-
-                            <div className="text-right">
-                              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest block">VOLUME</span>
-                              <span className="text-xs font-extrabold font-mono text-slate-600 block mt-1">
-                                {isPumping || isCompleted 
-                                  ? `${(pump.volumeThisSession || 0).toFixed(2)} L` 
-                                  : '0.00 L'}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Quick tap actions */}
-                          {isCompleted && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedPump(pump);
-                              }}
-                              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[9px] font-black uppercase tracking-wider border-none cursor-pointer shadow-xs select-none mt-2 font-sans transition-all text-center animate-fade-in"
-                            >
-                              Verify & Complete
-                            </button>
-                          )}
+                        {/* Top Right Nozzle selector icons */}
+                        <div className="flex items-center gap-1.5">
+                          {renderNozzleBoxSVG('A', pump.fuelType === 'GAS91' || pump.activeFuelGrade === 'GAS91', nozzleColor)}
+                          {renderNozzleBoxSVG('B', pump.fuelType === 'GAS95' || pump.activeFuelGrade === 'GAS95', nozzleColor)}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
 
-              {/* Table Log: REAL-TIME FUEL DISPENSING LOG */}
-              <div className="bg-white rounded-2xl border border-[#e2e8f0] shadow-sm overflow-hidden text-left">
-                <div className="bg-slate-50 border-b border-[#e2e8f0] px-5 py-4 flex justify-between items-center">
-                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
-                    ● Real-Time Fuel Dispensing Log
-                  </h3>
-                  <span className="text-[9px] font-black text-[#6c5dd3] bg-[#efecfe] px-2 py-0.5 rounded-full uppercase tracking-wider">
-                    Active Connections
-                  </span>
-                </div>
+                      {/* Middle Row: Layout maps to active dispensing variables */}
+                      {isPumping && (
+                        <div className="space-y-3 py-1 font-sans">
+                          {/* Large orange metrics text */}
+                          <div className="text-lg font-bold text-slate-350">
+                            <span className="text-2xl font-black text-[#f97316] font-mono">{(pump.volumeThisSession || 0).toFixed(2)}</span> Liters /{' '}
+                            <span className="text-slate-400">SAR</span> <span className="text-2xl font-black text-[#f97316] font-mono">{((pump.volumeThisSession || 0) * price).toFixed(2)}</span>
+                          </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[650px] border-collapse font-sans text-xs">
-                    <thead>
-                      <tr className="border-b border-[#e2e8f0] bg-slate-50/50 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                        <th className="px-5 py-3 text-left">Time</th>
-                        <th className="px-5 py-3 text-left">Pump Code</th>
-                        <th className="px-5 py-3 text-left">Nozzle No.</th>
-                        <th className="px-5 py-3 text-left">Product</th>
-                        <th className="px-5 py-3 text-left">PPU (SAR/L)</th>
-                        <th className="px-5 py-3 text-right">Volume (L)</th>
-                        <th className="px-5 py-3 text-right">Amount (SAR)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-medium">
-                      {(() => {
-                        const logs = transactions
-                          .filter(t => t.stationId === session.activeStationId)
-                          .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-                          .slice(0, 10);
+                          {/* Horizontal Progress Bar */}
+                          <div className="w-full bg-[#162032] h-2 rounded-full overflow-hidden border border-slate-900">
+                            <div 
+                              className="bg-orange-500 h-full transition-all duration-300"
+                              style={{ width: `${Math.min(100, ((pump.volumeThisSession || 0) / 25) * 100)}%` }} // simulated progress
+                            />
+                          </div>
 
-                        if (logs.length === 0) {
-                          return (
-                            <tr>
-                              <td colSpan={7} className="px-5 py-10 text-center text-slate-400 italic">
-                                No dispensing transaction records indexed yet.
-                              </td>
-                            </tr>
-                          );
-                        }
+                          {/* active user info footer */}
+                          <div className="flex items-center gap-2 border-t border-slate-900 pt-2 text-[10px] text-slate-400 font-semibold leading-none">
+                            <div className="w-3.5 h-3.5 bg-emerald-600/30 text-emerald-400 flex items-center justify-center rounded font-mono text-[9px]">A</div>
+                            <div className="w-4 h-4 rounded-full bg-[#8c7dfc] text-white flex items-center justify-center font-bold text-[8px]">KM</div>
+                            <span>Active User: <strong className="text-slate-200">Khalid M.</strong></span>
+                          </div>
+                        </div>
+                      )}
 
-                        return logs.map((tx) => {
-                          const is91 = tx.fuelType === 'GAS91';
-                          const isFinished = tx.status === 'FINISHED';
-                          return (
-                            <tr key={tx.id} className="hover:bg-slate-50/50">
-                              <td className="px-5 py-3.5 text-slate-400 font-mono">{tx.timestamp}</td>
-                              <td className="px-5 py-3.5 text-slate-800 font-bold uppercase">{tx.pumpId === 'DELIVERY_BAY' ? 'Replenish' : `Dispenser ${tx.pumpId.slice(-2)}`}</td>
-                              <td className="px-5 py-3.5 text-slate-600 font-bold font-mono">
-                                {tx.pumpId === 'DELIVERY_BAY' ? '-' : tx.id.slice(-2) || '01'}
-                              </td>
-                              <td className="px-5 py-3.5">
-                                <span className={`inline-block text-[9px] font-black px-2 py-0.5 rounded border uppercase font-mono ${
-                                  is91 
-                                    ? 'bg-[#e6fbf2] text-[#22c55e] border-[#bbf7d0]' 
-                                    : 'bg-[#fef2f2] text-[#ef4444] border-[#fecaca]'
-                                }`}>
-                                  {tx.fuelType}
-                                </span>
-                              </td>
-                              <td className="px-5 py-3.5 text-slate-600 font-mono">SAR {tx.pricePerLitre ? tx.pricePerLitre.toFixed(2) : '2.18'}</td>
-                              <td className="px-5 py-3.5 text-right font-mono text-slate-700 font-bold">
-                                {isFinished ? `${tx.volume.toFixed(2)} L` : '0.00 L'}
-                              </td>
-                              <td className="px-5 py-3.5 text-right font-mono text-emerald-600 font-black">
-                                {isFinished ? `SAR ${tx.amount.toFixed(2)}` : '0.00 SAR'}
-                              </td>
-                            </tr>
-                          );
-                        });
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
-          )}
+                      {isCompleted && (
+                        <div className="space-y-4 font-sans">
+                          <div className="text-xs text-slate-350 font-bold border-b border-slate-900 pb-3">
+                            Total: <strong className="text-white font-mono">{(pump.volumeThisSession || 0).toFixed(2)} L</strong> •{' '}
+                            <span className="text-[#3b82f6] font-mono">SAR {((pump.volumeThisSession || 0) * price).toFixed(2)}</span>
+                          </div>
 
-          {activeTab === 'transactions' && (
+                          {/* solid blue complete action button */}
+                          <button
+                            onClick={() => handleCompleteDispensing(pump)}
+                            className="w-full py-3 bg-[#2563eb] hover:bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md select-none cursor-pointer border-none text-center"
+                          >
+                            Complete Transaction
+                          </button>
+
+                          {/* Receipt link */}
+                          <button
+                            onClick={() => {
+                              // show previous invoice view template
+                              const stubTx: SalesTransaction = {
+                                id: `tx-sale-stub-${Date.now()}`,
+                                stationId: pump.stationId,
+                                timestamp: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+                                pumpId: pump.id,
+                                fuelType: pump.activeFuelGrade || pump.fuelType || 'GAS91',
+                                volume: pump.volumeThisSession || 0,
+                                heightBefore: 500,
+                                heightAfter: 480,
+                                temperature: 32,
+                                waterLevel: 0,
+                                pricePerLitre: price,
+                                amount: (pump.volumeThisSession || 0) * price,
+                                status: 'FINISHED',
+                                operator: session.name
+                              };
+                              setViewedTx(stubTx);
+                            }}
+                            className="w-full text-center text-xs font-bold text-slate-450 hover:text-white transition-colors cursor-pointer select-none bg-transparent border-none py-1 block"
+                          >
+                            View Receipt
+                          </button>
+                        </div>
+                      )}
+
+                      {isIdle && (
+                        /* Split start pump / view logs footer buttons */
+                        <div className="grid grid-cols-2 border-t border-slate-900 pt-3 text-xs font-bold text-slate-400">
+                          <button
+                            onClick={() => {
+                              setSelectedPump(pump);
+                              setSelectedNozzle('A'); // defaults
+                            }}
+                            className="flex items-center justify-center gap-1.5 hover:text-white transition-colors cursor-pointer bg-transparent border-none py-1 pr-2 border-r border-slate-900"
+                          >
+                            <Play size={12} className="text-emerald-500 fill-emerald-500" />
+                            <span>Start Pump</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setActiveTab('transactions');
+                              setTxSearchText(pump.id);
+                            }}
+                            className="flex items-center justify-center gap-1.5 hover:text-white transition-colors cursor-pointer bg-transparent border-none py-1 pl-2"
+                          >
+                            <ClipboardList size={13} className="text-indigo-400" />
+                            <span>View Logs</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )
+          ) : (
             /* =========================================================================
-               TRANSACTIONS HISTORICAL LOG TAB
+               TRANSACTIONS LOG TAB
                ========================================================================= */
             <div className="space-y-4 text-left animate-fade-in">
-              <div className="bg-white rounded-2xl border border-[#e2e8f0] shadow-sm p-5 space-y-4">
+              <div className="bg-[#111827]/75 border border-slate-800 rounded-2xl p-5 space-y-4">
                 <div className="space-y-1">
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Historical Transactions Log</h3>
-                  <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">Search, filter, and review completed sales and volume tallies.</p>
+                  <h3 className="text-sm font-black text-white uppercase tracking-wider">Historical Transactions Log</h3>
+                  <p className="text-[10px] text-slate-450 font-semibold leading-relaxed">Search, filter, and review completed attendant fueling logs.</p>
                 </div>
 
-                {/* Query inputs block */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Filter forms */}
+                <div className="space-y-2">
                   <div className="relative">
-                    <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                     <input
                       type="text"
-                      placeholder="Search TX ID, attendant name, customer..."
+                      placeholder="Search TX ID, customer, operator..."
                       value={txSearchText}
                       onChange={(e) => setTxSearchText(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#6c5dd3] focus:bg-white placeholder-slate-400"
+                      className="w-full bg-[#090d16] border border-slate-800 rounded-xl py-2 pl-9 pr-4 text-xs font-semibold text-white focus:outline-none focus:border-[#8c7dfc] placeholder-slate-600"
                     />
                     {txSearchText && (
-                      <button onClick={() => setTxSearchText('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      <button onClick={() => setTxSearchText('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
                         <X size={12} />
                       </button>
                     )}
                   </div>
 
-                  <select
-                    value={txGradeFilter}
-                    onChange={(e) => setTxGradeFilter(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:border-[#6c5dd3] focus:bg-white uppercase text-left outline-none"
-                  >
-                    <option value="ALL">All Products</option>
-                    <option value="GAS91">GAS91 Only</option>
-                    <option value="GAS95">GAS95 Only</option>
-                    <option value="GAS98">GAS98 Only</option>
-                    <option value="DIESEL">Diesel Only</option>
-                  </select>
+                  <div className="flex gap-2">
+                    <select
+                      value={txGradeFilter}
+                      onChange={(e) => setTxGradeFilter(e.target.value)}
+                      className="flex-1 bg-[#090d16] border border-slate-800 rounded-xl px-2.5 py-2 text-[10px] font-black text-slate-350 outline-none uppercase"
+                    >
+                      <option value="ALL">All Grades</option>
+                      <option value="GAS91">GAS91</option>
+                      <option value="GAS95">GAS95</option>
+                      <option value="GAS98">GAS98</option>
+                      <option value="DIESEL">Diesel</option>
+                    </select>
 
-                  <button
-                    onClick={() => setTxSortOrder(prev => prev === 'newest' ? 'oldest' : 'newest')}
-                    className="flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black uppercase text-slate-650 hover:bg-slate-100"
-                  >
-                    <ArrowUpDown size={13} className="text-[#6c5dd3]" />
-                    <span>Date: {txSortOrder === 'newest' ? 'Newest First' : 'Oldest First'}</span>
-                  </button>
+                    <button
+                      onClick={() => setTxSortOrder(prev => prev === 'newest' ? 'oldest' : 'newest')}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-[#090d16] border border-slate-800 rounded-xl text-[10px] font-black uppercase text-slate-350 hover:bg-[#111827]"
+                    >
+                      <ArrowUpDown size={11} className="text-[#8c7dfc]" />
+                      <span>{txSortOrder === 'newest' ? 'Newest' : 'Oldest'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* Transactions list Table */}
-              <div className="bg-white rounded-2xl border border-[#e2e8f0] shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[700px] border-collapse font-sans text-xs">
-                    <thead>
-                      <tr className="border-b border-[#e2e8f0] bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                        <th className="px-5 py-3 text-left">Time</th>
-                        <th className="px-5 py-3 text-left">Transaction ID</th>
-                        <th className="px-5 py-3 text-left">Nozzle / Pump</th>
-                        <th className="px-5 py-3 text-left">Product</th>
-                        <th className="px-5 py-3 text-left">Attendant</th>
-                        <th className="px-5 py-3 text-right">Volume (L)</th>
-                        <th className="px-5 py-3 text-right">Amount (SAR)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-medium">
-                      {(() => {
-                        const stationTxs = transactions.filter(t => t.stationId === session.activeStationId);
-                        
-                        const filtered = stationTxs.filter(t => {
-                          const matchSearch = 
-                            !txSearchText || 
-                            t.id.toLowerCase().includes(txSearchText.toLowerCase()) ||
-                            (t.operator && t.operator.toLowerCase().includes(txSearchText.toLowerCase())) ||
-                            (t.customer && t.customer.toLowerCase().includes(txSearchText.toLowerCase())) ||
-                            t.pumpId.toLowerCase().includes(txSearchText.toLowerCase());
-                          
-                          const matchGrade = txGradeFilter === 'ALL' || t.fuelType === txGradeFilter;
-                          
-                          return matchSearch && matchGrade;
-                        });
+              {/* Transactions List */}
+              {(() => {
+                const stationTxs = transactions.filter(t => t.stationId === session.activeStationId);
+                
+                const filtered = stationTxs.filter(t => {
+                  const matchSearch = 
+                    !txSearchText || 
+                    t.id.toLowerCase().includes(txSearchText.toLowerCase()) ||
+                    (t.operator && t.operator.toLowerCase().includes(txSearchText.toLowerCase())) ||
+                    (t.customer && t.customer.toLowerCase().includes(txSearchText.toLowerCase())) ||
+                    t.pumpId.toLowerCase().includes(txSearchText.toLowerCase());
+                  
+                  const matchGrade = txGradeFilter === 'ALL' || t.fuelType === txGradeFilter;
+                  
+                  return matchSearch && matchGrade;
+                });
 
-                        const sorted = [...filtered].sort((a, b) => {
-                          return txSortOrder === 'newest'
-                            ? b.timestamp.localeCompare(a.timestamp)
-                            : a.timestamp.localeCompare(b.timestamp);
-                        });
+                const sorted = [...filtered].sort((a, b) => {
+                  return txSortOrder === 'newest'
+                    ? b.timestamp.localeCompare(a.timestamp)
+                    : a.timestamp.localeCompare(b.timestamp);
+                });
 
-                        if (sorted.length === 0) {
-                          return (
-                            <tr>
-                              <td colSpan={7} className="px-5 py-10 text-center text-slate-400 italic">
-                                No matching sales transaction logs found.
-                              </td>
-                            </tr>
-                          );
-                        }
+                if (sorted.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-slate-500 italic text-xs font-semibold border border-dashed border-slate-850 rounded-2xl">
+                      No matching transaction logs found.
+                    </div>
+                  );
+                }
 
-                        return sorted.map((tx) => {
-                          const is91 = tx.fuelType === 'GAS91';
-                          const isFinished = tx.status === 'FINISHED';
-                          return (
-                            <tr
-                              key={tx.id}
-                              onClick={() => setViewedTx(tx)}
-                              className="hover:bg-slate-50/80 cursor-pointer transition-colors"
-                            >
-                              <td className="px-5 py-3.5 text-slate-400 font-mono">{tx.timestamp}</td>
-                              <td className="px-5 py-3.5 text-slate-800 font-bold font-mono uppercase">{tx.id.toUpperCase()}</td>
-                              <td className="px-5 py-3.5 text-slate-600 font-bold">
-                                {tx.pumpId === 'DELIVERY_BAY' ? 'Replenish' : `Pump ${tx.pumpId.slice(-2)}`}
-                              </td>
-                              <td className="px-5 py-3.5">
-                                <span className={`inline-block text-[9px] font-black px-2 py-0.5 rounded border uppercase font-mono ${
-                                  is91 
-                                    ? 'bg-[#e6fbf2] text-[#22c55e] border-[#bbf7d0]' 
-                                    : 'bg-[#fef2f2] text-[#ef4444] border-[#fecaca]'
-                                }`}>
-                                  {tx.fuelType}
-                                </span>
-                              </td>
-                              <td className="px-5 py-3.5 text-indigo-500 font-bold truncate max-w-[120px]">{tx.operator ? tx.operator.split('@')[0] : 'Attendant'}</td>
-                              <td className="px-5 py-3.5 text-right font-mono text-slate-700 font-bold">
-                                {isFinished ? `${tx.volume.toFixed(2)} L` : '0.00 L'}
-                              </td>
-                              <td className="px-5 py-3.5 text-right font-mono text-emerald-600 font-black">
-                                {isFinished ? `SAR ${tx.amount.toFixed(2)}` : '0.00 SAR'}
-                              </td>
-                            </tr>
-                          );
-                        });
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                return (
+                  <div className="space-y-3">
+                    {sorted.map(tx => {
+                      const is91 = tx.fuelType === 'GAS91';
+                      const isFinished = tx.status === 'FINISHED';
+                      return (
+                        <div
+                          key={tx.id}
+                          onClick={() => setViewedTx(tx)}
+                          className="bg-[#111827]/75 border border-slate-850 rounded-2xl p-4 flex justify-between items-center hover:bg-[#162032] transition-all cursor-pointer shadow-xs"
+                        >
+                          <div className="space-y-1.5 flex-1 min-w-0 pr-3">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-mono font-bold text-slate-300 truncate">{tx.id.toUpperCase()}</span>
+                              <span className={`px-1.5 py-0.2 rounded text-[7px] font-black uppercase ${
+                                isFinished ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              }`}>
+                                {tx.status}
+                              </span>
+                            </div>
+                            
+                            <div className="flex items-center gap-1.5 text-[9px] text-slate-500 font-semibold">
+                              <span className={`inline-block text-[8px] font-black px-1.5 rounded border uppercase font-mono ${
+                                is91 
+                                  ? 'bg-[#e6fbf2]/5 text-[#22c55e] border-[#bbf7d0]/20' 
+                                  : 'bg-[#fef2f2]/5 text-[#ef4444] border-[#fecaca]/20'
+                              }`}>
+                                {tx.fuelType}
+                              </span>
+                              <span className="truncate">{tx.pumpId === 'DELIVERY_BAY' ? 'Replenish' : `Pump ${tx.pumpId.slice(-2)}`}</span>
+                              <span>•</span>
+                              <span className="truncate">{tx.operator ? tx.operator.split('@')[0] : 'Attendant'}</span>
+                            </div>
+
+                            <div className="text-[8px] text-slate-600 font-mono">{tx.timestamp}</div>
+                          </div>
+
+                          <div className="text-right flex flex-col justify-center items-end shrink-0">
+                            {tx.volume > 0 && (
+                              <>
+                                <span className="text-xs font-mono font-black text-emerald-400">SAR {tx.amount.toFixed(2)}</span>
+                                <span className="text-[9px] text-slate-450 font-bold font-mono">{tx.volume.toFixed(2)} L</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </main>
       </div>
 
-      {/* 3. SLIDING NAVIGATION SIDEBAR DRAWER - MOBILE SCREEN SIZE ONLY (< 1024px) */}
-      {isDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex lg:hidden animate-fade-in">
-          {/* Backdrop mask */}
-          <div 
-            onClick={() => setIsDrawerOpen(false)}
-            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity duration-300"
-          ></div>
-          
-          {/* Drawer container body */}
-          <div className="relative w-64 bg-white shadow-2xl h-full z-50 flex flex-col transition-transform duration-300 animate-slide-right">
-            <button 
-              onClick={() => setIsDrawerOpen(false)}
-              className="absolute top-4 right-4 p-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-            >
-              <X size={14} />
-            </button>
-            <div className="flex-1 overflow-y-auto">
-              {renderSidebar()}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 2. STICKY BOTTOM TABS MENU NAVIGATION */}
+      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#0d1321]/95 backdrop-blur-md border-t border-slate-900 grid grid-cols-3 z-45 shrink-0">
+        <button
+          onClick={() => {
+            setActiveTab('pumps');
+            setCompletedReceipt(null);
+            setSelectedPump(null);
+          }}
+          className={`py-3 flex flex-col items-center justify-center gap-0.5 border-none cursor-pointer transition-all select-none bg-transparent ${
+            activeTab === 'pumps' ? 'text-[#3b82f6]' : 'text-slate-500 hover:text-slate-350'
+          }`}
+        >
+          <Fuel size={16} className={activeTab === 'pumps' ? 'text-[#3b82f6]' : 'text-slate-500'} />
+          <span className="text-[8px] font-black uppercase tracking-wider">Pumps</span>
+        </button>
 
-      {/* 4. FLOATING SIMULATOR ACTIVATOR BUTTON */}
+        <button
+          onClick={() => {
+            setActiveTab('transactions');
+            setCompletedReceipt(null);
+            setSelectedPump(null);
+          }}
+          className={`py-3 flex flex-col items-center justify-center gap-0.5 border-none cursor-pointer transition-all select-none bg-transparent ${
+            activeTab === 'transactions' ? 'text-[#3b82f6]' : 'text-slate-500 hover:text-slate-350'
+          }`}
+        >
+          <ClipboardList size={16} className={activeTab === 'transactions' ? 'text-[#3b82f6]' : 'text-slate-500'} />
+          <span className="text-[8px] font-black uppercase tracking-wider">Transactions</span>
+        </button>
+
+        <button
+          onClick={handleLogout}
+          className="py-3 flex flex-col items-center justify-center gap-0.5 border-none cursor-pointer transition-all select-none bg-transparent text-slate-500 hover:text-red-400"
+        >
+          <LogOut size={16} className="text-slate-500" />
+          <span className="text-[8px] font-black uppercase tracking-wider">Exit</span>
+        </button>
+      </nav>
+
+      {/* 3. FLOATING ACTION BUTTON: COMMAND DECK SIMULATOR */}
       <button
         onClick={() => setIsSimulatorOpen(true)}
-        className="fixed bottom-6 right-6 px-4 py-3 bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white rounded-full flex items-center gap-2 shadow-lg shadow-indigo-500/20 text-xs font-black uppercase tracking-wider cursor-pointer border-none select-none z-30 transition-all hover:scale-105 active:scale-95 animate-fade-in animate-pulse"
+        className="fixed bottom-18 right-6 w-11 h-11 bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white rounded-full flex items-center justify-center shadow-lg shadow-indigo-500/20 cursor-pointer border-none select-none z-30 transition-all hover:scale-105 active:scale-95"
+        title="Command Deck Simulator"
       >
-        <Sparkles size={14} />
-        <span>Command Deck Simulator</span>
+        <Sparkles size={16} />
       </button>
 
       {/* =========================================================================
-         MODAL INTERFACE: DISPENSER LANE PANEL SELECTOR & SIMULATOR
+         POPUP SHEET: ATtendant Fueling Setup & presets
          ========================================================================= */}
-      {selectedPump && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xl p-5 max-w-sm w-full font-sans text-xs relative text-left">
+      {selectedPump && !selectedPump.status.includes('PUMPING') && !selectedPump.status.includes('COMPLETED') && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="bg-[#111827] border border-slate-850 rounded-t-3xl max-w-sm w-full p-5 space-y-4 text-left relative animate-slide-up">
             
-            {/* Close */}
             <button
               onClick={() => {
                 setSelectedPump(null);
                 setDispenseError(null);
               }}
-              className="absolute top-4 right-4 p-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full text-slate-500 hover:text-slate-800 transition-colors cursor-pointer select-none"
+              className="absolute top-4 right-4 p-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-full text-slate-500 hover:text-white transition-colors cursor-pointer select-none"
             >
               <X size={14} />
             </button>
 
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-3 pr-8 border-b border-slate-100 pb-2 font-sans">
-              Nozzle Control No.{selectedPump.label.slice(-2)}
+            <h3 className="text-sm font-black text-white uppercase tracking-wider border-b border-slate-800 pb-2">
+              Start Fueling Simulation
             </h3>
 
-            {/* State logic display */}
-            {selectedPump.status === 'PUMPING' ? (
-              <div className="space-y-4 font-sans">
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center space-y-1">
-                  <span className="text-[9px] font-black text-amber-600 uppercase tracking-wider animate-pulse">
-                    ⚡ Fueling in progress
-                  </span>
-                  <div className="text-2xl font-black font-mono text-slate-800">
-                    {(selectedPump.volumeThisSession || 0).toFixed(2)} L
-                  </div>
-                  <div className="text-xs font-bold text-[#6c5dd3] font-mono">
-                    SAR {((selectedPump.volumeThisSession || 0) * getSelectedPumpPrice(selectedPump)).toFixed(2)}
-                  </div>
-                </div>
+            {/* Nozzle grade switch */}
+            <div className="space-y-1.5">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">1. Select Nozzle / Product Grade</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedNozzle('A')}
+                  className={`py-3 rounded-xl border text-xs font-mono font-black transition-all cursor-pointer select-none ${
+                    selectedNozzle === 'A'
+                      ? 'bg-[#102a1e] text-[#22c55e] border-[#22c55e] shadow-md'
+                      : 'bg-[#090d16] text-slate-500 border-slate-800 hover:text-slate-350'
+                  }`}
+                >
+                  Nozzle A (GAS91)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedNozzle('B')}
+                  className={`py-3 rounded-xl border text-xs font-mono font-black transition-all cursor-pointer select-none ${
+                    selectedNozzle === 'B'
+                      ? 'bg-[#3b1212] text-[#ef4444] border-[#ef4444] shadow-md'
+                      : 'bg-[#090d16] text-slate-500 border-slate-800 hover:text-slate-350'
+                  }`}
+                >
+                  Nozzle B (GAS95)
+                </button>
+              </div>
+            </div>
 
-                <div className="bg-slate-50 rounded-lg p-3 grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate-500">
-                  <div>
-                    <span>FLOW RATE:</span>
-                    <strong className="block text-slate-800 font-bold font-mono">40.0 L/min</strong>
-                  </div>
-                  <div className="text-right">
-                    <span>TARGET LITERS:</span>
-                    <strong className="block text-slate-800 font-bold font-mono">
-                      {calculateLiters(amountSAR, getSelectedPumpPrice(selectedPump)).toFixed(2)} L
-                    </strong>
-                  </div>
-                </div>
-
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-amber-500 h-full transition-all duration-300"
-                    style={{ 
-                      width: `${Math.min(100, ((selectedPump.volumeThisSession || 0) / calculateLiters(amountSAR, getSelectedPumpPrice(selectedPump))) * 100)}%` 
+            {/* Presets */}
+            <div className="space-y-1.5">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">2. Select Preset Amount (SAR)</span>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[10, 20, 50, 100, 150, 200].map(val => (
+                  <button
+                    key={val}
+                    onClick={() => {
+                      setAmountSAR(String(val));
+                      setDispenseError(null);
                     }}
-                  />
-                </div>
+                    className={`py-2 rounded-lg border text-xs font-mono font-bold cursor-pointer select-none transition-all ${
+                      amountSAR === String(val)
+                        ? 'bg-[#efecfe]/10 text-[#8c7dfc] border-[#8c7dfc]'
+                        : 'bg-[#090d16] text-slate-500 border-slate-850 hover:text-slate-350'
+                    }`}
+                  >
+                    SAR {val}
+                  </button>
+                ))}
               </div>
-            ) : selectedPump.status === 'COMPLETED' ? (
-              <div className="space-y-4 font-sans">
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center space-y-1">
-                  <span className="text-[9px] font-black text-blue-600 uppercase tracking-wider">
-                    ✓ Dispense Session Completed
-                  </span>
-                  <div className="text-2xl font-black font-mono text-slate-850">
-                    {(selectedPump.volumeThisSession || 0).toFixed(2)} L
-                  </div>
-                  <div className="text-xs font-bold text-emerald-600 font-mono">
-                    SAR {((selectedPump.volumeThisSession || 0) * getSelectedPumpPrice(selectedPump)).toFixed(2)}
-                  </div>
-                </div>
+            </div>
 
-                <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">Customer Tag (Optional)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Aramco Transport"
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded-lg py-2 px-3 text-xs font-semibold focus:outline-none focus:border-[#6c5dd3] focus:bg-white"
-                  />
-                </div>
-
-                {dispenseError && (
-                  <div className="bg-red-50 border border-red-200 text-red-600 p-2.5 rounded-lg text-[10px] font-semibold flex items-start gap-1">
-                    <AlertTriangle className="shrink-0 mt-0.5" size={12} />
-                    <span>{dispenseError}</span>
-                  </div>
-                )}
-
-                <button
-                  onClick={handleCompleteDispensing}
-                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-widest cursor-pointer select-none border-none text-center"
-                >
-                  Verify and Complete
-                </button>
+            {/* Custom Manual Input */}
+            <div className="space-y-1">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Or Custom Value (SAR)</span>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-bold font-mono text-[10px]">SAR</span>
+                <input
+                  type="number"
+                  value={amountSAR}
+                  onChange={(e) => {
+                    setAmountSAR(e.target.value);
+                    setDispenseError(null);
+                  }}
+                  className="w-full bg-[#090d16] text-white border border-slate-800 rounded-lg py-2 pl-12 pr-3 text-xs font-mono font-bold focus:outline-none focus:border-[#8c7dfc]"
+                  min="1"
+                />
               </div>
-            ) : (
-              <div className="space-y-4 font-sans">
-                {/* Preset selectors */}
-                <div className="space-y-1.5">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Select Preconfigured Amount</span>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {[10, 20, 50, 100, 150, 200].map(val => (
-                      <button
-                        key={val}
-                        onClick={() => {
-                          setAmountSAR(String(val));
-                          setDispenseError(null);
-                        }}
-                        className={`py-2 rounded-lg border text-xs font-mono font-bold cursor-pointer select-none transition-all ${
-                          amountSAR === String(val)
-                            ? 'bg-[#efecfe] text-[#6c5dd3] border-[#6c5dd3]'
-                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        SAR {val}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            </div>
 
-                {/* Custom Value */}
-                <div className="space-y-1">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Custom Value (SAR)</span>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold font-mono">SAR</span>
-                    <input
-                      type="number"
-                      value={amountSAR}
-                      onChange={(e) => {
-                        setAmountSAR(e.target.value);
-                        setDispenseError(null);
-                      }}
-                      className="w-full bg-slate-50 text-slate-800 border border-slate-200 rounded-lg py-2 pl-12 pr-3 text-xs font-mono font-bold focus:outline-none focus:border-[#6c5dd3] focus:bg-white"
-                      min="1"
-                    />
-                  </div>
-                </div>
+            <div className="bg-[#090d16] rounded-xl p-3 flex justify-between items-center text-[10px] font-semibold text-slate-500 border border-slate-850">
+              <div>
+                <span>CALCULATED VOLUME:</span>
+                <strong className="block text-slate-200 text-xs font-black font-mono mt-0.5">
+                  {calculateLiters(amountSAR, getSelectedPumpPrice(selectedPump, selectedNozzle)).toFixed(2)} L
+                </strong>
+              </div>
+              <div className="text-right">
+                <span>UNIT PRICE:</span>
+                <strong className="block text-[#8c7dfc] font-bold font-mono mt-0.5">
+                  SAR {getSelectedPumpPrice(selectedPump, selectedNozzle).toFixed(2)}/L
+                </strong>
+              </div>
+            </div>
 
-                {/* Liters Info Panel */}
-                <div className="bg-slate-50 rounded-xl p-3 flex justify-between items-center text-[10px] font-semibold text-slate-500 border border-slate-100">
-                  <div>
-                    <span>CALCULATED VOLUME:</span>
-                    <strong className="block text-slate-800 text-xs font-black font-mono mt-0.5">
-                      {calculateLiters(amountSAR, getSelectedPumpPrice(selectedPump)).toFixed(2)} L
-                    </strong>
-                  </div>
-                  <div className="text-right">
-                    <span>UNIT PRICE:</span>
-                    <strong className="block text-[#6c5dd3] font-bold font-mono mt-0.5">
-                      SAR {getSelectedPumpPrice(selectedPump).toFixed(2)}/L
-                    </strong>
-                  </div>
-                </div>
-
-                {dispenseError && (
-                  <div className="bg-red-50 border border-red-200 text-red-600 p-2.5 rounded-lg text-[10px] font-semibold flex items-start gap-1">
-                    <AlertTriangle className="shrink-0 mt-0.5" size={12} />
-                    <span>{dispenseError}</span>
-                  </div>
-                )}
-
-                <button
-                  onClick={handleStartDispensing}
-                  className="w-full py-3 bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white rounded-xl text-xs font-bold uppercase tracking-wider border-none cursor-pointer select-none text-center"
-                >
-                  Start Dispensing
-                </button>
+            {dispenseError && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-2.5 rounded-lg text-[10px] font-semibold flex items-start gap-1">
+                <AlertTriangle className="shrink-0 mt-0.5" size={12} />
+                <span>{dispenseError}</span>
               </div>
             )}
+
+            <button
+              onClick={handleStartDispensing}
+              className="w-full py-3 bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white rounded-xl text-xs font-bold uppercase tracking-wider border-none cursor-pointer select-none text-center shadow-md shadow-indigo-900/30"
+            >
+              Start Dispensing Nozzle
+            </button>
           </div>
         </div>
       )}
@@ -1096,26 +729,26 @@ export const MobileDispenserApp: React.FC = () => {
          ========================================================================= */}
       {viewedTx && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xl p-5 max-w-sm w-full font-mono text-xs font-semibold relative text-left">
+          <div className="bg-[#111827] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl p-5 max-w-sm w-full font-mono text-xs font-semibold relative text-left">
             
             <button
               onClick={() => setViewedTx(null)}
-              className="absolute top-4 right-4 p-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full text-slate-500 hover:text-white transition-colors cursor-pointer select-none"
+              className="absolute top-4 right-4 p-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-full text-slate-500 hover:text-white transition-colors cursor-pointer select-none"
             >
               <X size={14} />
             </button>
 
-            <div className="text-center border-b border-dashed border-slate-200 pb-3 mt-2">
-              <span className="font-bold text-slate-800 tracking-wider">NOOR FUEL AUTOMATION</span>
-              <div className="text-[10px] text-slate-400 mt-1">
+            <div className="text-center border-b border-dashed border-slate-800 pb-3 mt-2">
+              <span className="font-bold text-slate-350 tracking-wider">NOOR FUEL AUTOMATION</span>
+              <div className="text-[10px] text-slate-500 mt-1">
                 {stations.find(s => s.id === viewedTx.stationId)?.name || 'Central Telemetry'}
               </div>
             </div>
 
-            <div className="space-y-2 border-b border-dashed border-slate-200 py-3 text-slate-600">
+            <div className="space-y-2 border-b border-dashed border-slate-800 py-3 text-slate-400">
               <div className="flex justify-between">
                 <span>TX ID:</span>
-                <span className="font-bold text-slate-800">{viewedTx.id.toUpperCase()}</span>
+                <span className="font-bold text-white text-[10px] truncate max-w-[150px]">{viewedTx.id.toUpperCase()}</span>
               </div>
               <div className="flex justify-between">
                 <span>TIMESTAMP:</span>
@@ -1123,13 +756,13 @@ export const MobileDispenserApp: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>PUMP ID:</span>
-                <span className="font-bold text-slate-800">
+                <span className="font-bold text-white">
                   {viewedTx.pumpId === 'DELIVERY_BAY' ? 'Logistics Bay' : `Dispenser ${viewedTx.pumpId.slice(-2)}`}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span>FUEL GRADE:</span>
-                <span className="font-bold text-[#6c5dd3]">{viewedTx.fuelType}</span>
+                <span className="font-bold text-[#8c7dfc]">{viewedTx.fuelType}</span>
               </div>
               <div className="flex justify-between">
                 <span>PRICE/LITRE:</span>
@@ -1137,12 +770,12 @@ export const MobileDispenserApp: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>ATTENDANT:</span>
-                <span className="font-bold text-slate-800">{viewedTx.operator ? viewedTx.operator.split('@')[0] : 'Attendant'}</span>
+                <span className="font-bold text-indigo-300">{viewedTx.operator ? viewedTx.operator.split('@')[0] : 'Attendant'}</span>
               </div>
               {viewedTx.customer && (
                 <div className="flex justify-between">
                   <span>CUSTOMER:</span>
-                  <span className="font-bold text-slate-800 truncate max-w-[150px]">{viewedTx.customer}</span>
+                  <span className="font-bold text-white truncate max-w-[150px]">{viewedTx.customer}</span>
                 </div>
               )}
             </div>
@@ -1150,9 +783,9 @@ export const MobileDispenserApp: React.FC = () => {
             <div className="space-y-2 py-3">
               <div className="flex justify-between text-slate-500 font-sans text-[11px] font-bold">
                 <span>VOLUME DELIVERED:</span>
-                <span className="text-slate-800 font-mono text-sm font-black">{viewedTx.volume.toFixed(2)} L</span>
+                <span className="text-white font-mono text-sm font-black">{viewedTx.volume.toFixed(2)} L</span>
               </div>
-              <div className="flex justify-between text-emerald-600 font-sans text-sm font-bold pt-1.5 border-t border-slate-100">
+              <div className="flex justify-between text-emerald-400 font-sans text-sm font-bold pt-1.5 border-t border-slate-900">
                 <span>TOTAL AMOUNT:</span>
                 <span className="font-mono font-black">SAR {viewedTx.amount.toFixed(2)}</span>
               </div>
@@ -1169,37 +802,37 @@ export const MobileDispenserApp: React.FC = () => {
       )}
 
       {/* =========================================================================
-         MODAL INTERFACE: COMPLETED Dispensing Session Confirmation Receipt
+         MODAL INTERFACE: COMPLETED Dispensing confirmation receipt
          ========================================================================= */}
       {completedReceipt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xl p-5 max-w-sm w-full font-mono text-xs font-semibold relative text-left">
+          <div className="bg-[#111827] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl p-5 max-w-sm w-full font-mono text-xs font-semibold relative text-left">
             
             <button
               onClick={() => setCompletedReceipt(null)}
-              className="absolute top-4 right-4 p-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full text-slate-500 hover:text-white transition-colors cursor-pointer select-none"
+              className="absolute top-4 right-4 p-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-full text-slate-500 hover:text-white transition-colors cursor-pointer select-none"
             >
               <X size={14} />
             </button>
 
             <div className="text-center space-y-2 py-4 font-sans">
-              <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-55 border border-[#bbf7d0] text-emerald-600 shadow-xs">
+              <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shadow-xs">
                 <CheckCircle size={28} />
               </div>
-              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Sale Logged & Synced</h3>
-              <p className="text-[10px] text-slate-500 font-medium">Inventory updated successfully in database</p>
+              <h3 className="text-sm font-black text-white uppercase tracking-wider">Sale Logged & Synced</h3>
+              <p className="text-[10px] text-slate-400 font-medium">Inventory updated successfully in database</p>
             </div>
 
-            <div className="border-t border-dashed border-slate-200 pt-3">
+            <div className="border-t border-dashed border-slate-800 pt-3">
               <div className="text-center mb-3">
-                <span className="font-bold text-slate-800 tracking-wider">NOOR FUEL AUTOMATION</span>
-                <div className="text-[10px] text-slate-400 mt-1">{completedReceipt.stationName}</div>
+                <span className="font-bold text-slate-350 tracking-wider">NOOR FUEL AUTOMATION</span>
+                <div className="text-[10px] text-slate-550 mt-1">{completedReceipt.stationName}</div>
               </div>
 
-              <div className="space-y-2 border-b border-dashed border-slate-200 pb-3 text-slate-600">
+              <div className="space-y-2 border-b border-dashed border-slate-800 pb-3 text-slate-400">
                 <div className="flex justify-between">
                   <span>TX ID:</span>
-                  <span className="font-bold text-slate-800">{completedReceipt.txNumber}</span>
+                  <span className="font-bold text-white">{completedReceipt.txNumber}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>TIMESTAMP:</span>
@@ -1207,11 +840,11 @@ export const MobileDispenserApp: React.FC = () => {
                 </div>
                 <div className="flex justify-between">
                   <span>PUMP NOZZLE:</span>
-                  <span className="font-bold text-slate-800">{completedReceipt.pumpLabel}</span>
+                  <span className="font-bold text-white">{completedReceipt.pumpLabel}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>FUEL GRADE:</span>
-                  <span className="font-bold text-[#6c5dd3]">{completedReceipt.fuelType}</span>
+                  <span className="font-bold text-[#8c7dfc]">{completedReceipt.fuelType}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>PRICE PER L:</span>
@@ -1220,7 +853,7 @@ export const MobileDispenserApp: React.FC = () => {
                 {completedReceipt.customer && (
                   <div className="flex justify-between">
                     <span>CUSTOMER:</span>
-                    <span className="font-bold text-slate-800 truncate max-w-[150px]">{completedReceipt.customer}</span>
+                    <span className="font-bold text-white truncate max-w-[150px]">{completedReceipt.customer}</span>
                   </div>
                 )}
               </div>
@@ -1228,9 +861,9 @@ export const MobileDispenserApp: React.FC = () => {
               <div className="space-y-2 py-3">
                 <div className="flex justify-between text-slate-500 font-sans text-[11px] font-bold">
                   <span>VOLUME DISPENSED:</span>
-                  <span className="text-slate-800 font-mono text-sm font-black">{completedReceipt.liters.toFixed(2)} L</span>
+                  <span className="text-white font-mono text-sm font-black">{completedReceipt.liters.toFixed(2)} L</span>
                 </div>
-                <div className="flex justify-between text-emerald-600 font-sans text-sm font-bold pt-1.5 border-t border-slate-100">
+                <div className="flex justify-between text-emerald-600 font-sans text-sm font-bold pt-1.5 border-t border-slate-900">
                   <span>TOTAL AMOUNT:</span>
                   <span className="font-mono font-black">SAR {completedReceipt.amount.toFixed(2)}</span>
                 </div>
@@ -1248,34 +881,34 @@ export const MobileDispenserApp: React.FC = () => {
       )}
 
       {/* =========================================================================
-         MODAL INTERFACE: AUTOMATED SIMULATOR PANEL (COMMAND DECK)
+         COMMAND DECK SIMULATOR DRAWER
          ========================================================================= */}
       {isSimulatorOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xl p-5 max-w-sm w-full font-sans text-xs relative text-left">
+          <div className="bg-[#111827] border border-slate-850 rounded-2xl overflow-hidden shadow-2xl p-5 max-w-sm w-full font-sans text-xs relative text-left">
             
             <button
               onClick={() => setIsSimulatorOpen(false)}
-              className="absolute top-4 right-4 p-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full text-slate-500 hover:text-slate-800 transition-colors cursor-pointer select-none"
+              className="absolute top-4 right-4 p-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-full text-slate-500 hover:text-white transition-colors cursor-pointer select-none"
             >
               <X size={14} />
             </button>
 
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide mb-3 pr-8 border-b border-slate-100 pb-2 flex items-center gap-1.5 font-sans">
-              <Sparkles size={16} className="text-[#6c5dd3]" />
+            <h3 className="text-sm font-black text-white uppercase tracking-wide mb-3 pr-8 border-b border-slate-850 pb-2 flex items-center gap-1.5">
+              <Sparkles size={16} className="text-[#8c7dfc]" />
               <span>COMMAND DECK SIMULATOR</span>
             </h3>
 
-            <p className="text-[10px] text-slate-500 mb-4 font-semibold leading-relaxed font-sans">
+            <p className="text-[10px] text-slate-450 mb-4 font-semibold leading-relaxed">
               Use these tools to simulate live pump actions. Dispensed logs will automatically sync in real-time.
             </p>
 
-            <div className="space-y-3 font-sans">
+            <div className="space-y-3">
               {stationPumps.map(pump => {
                 const isIdle = pump.status === 'IDLE';
                 return (
-                  <div key={pump.id} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                    <span className="font-bold text-slate-700">{pump.label} ({pump.fuelType})</span>
+                  <div key={pump.id} className="flex justify-between items-center bg-[#090d16] p-2.5 rounded-xl border border-slate-850">
+                    <span className="font-bold text-slate-200">{pump.label} ({pump.fuelType})</span>
                     <button
                       disabled={!isIdle}
                       onClick={() => {
@@ -1285,7 +918,7 @@ export const MobileDispenserApp: React.FC = () => {
                       className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all select-none border-none cursor-pointer ${
                         isIdle 
                           ? 'bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white shadow-xs' 
-                          : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                          : 'bg-slate-800 text-slate-550 cursor-not-allowed'
                       }`}
                     >
                       {isIdle ? 'Simulate Fueling' : 'Pumping...'}
@@ -1297,7 +930,7 @@ export const MobileDispenserApp: React.FC = () => {
 
             <button
               onClick={() => setIsSimulatorOpen(false)}
-              className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold uppercase tracking-wider select-none cursor-pointer border border-slate-300 text-center font-sans mt-4"
+              className="w-full py-3 bg-[#090d16] hover:bg-[#111827] text-slate-400 rounded-xl text-xs font-bold uppercase tracking-wider select-none cursor-pointer border border-slate-850 text-center font-sans mt-4"
             >
               Dismiss
             </button>
