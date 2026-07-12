@@ -11,8 +11,10 @@ import { Play, Sparkles, AlertCircle, RefreshCw, X, ChevronRight, HelpCircle } f
 export const PumpMonitor: React.FC = () => {
   const { pumps, session, activeStation, dispenseFuel, confirmDispenseTransaction, tanks, transactions } = useFuelSystem();
 
-  // Filter pumps belonging to current active station
-  const stationPumps = pumps.filter(p => p.stationId === session.activeStationId);
+  // Filter pumps belonging to current active station, sorted by label
+  const stationPumps = pumps
+    .filter(p => p.stationId === session.activeStationId)
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
   const stationTanks = tanks.filter(t => t.stationId === session.activeStationId);
   const stationTx = transactions.filter(tx => tx.stationId === session.activeStationId && tx.status === 'FINISHED');
 
@@ -221,7 +223,9 @@ export const PumpMonitor: React.FC = () => {
       {/* 2. DISPENSERS HARDWARE ARRAY (IMAGE 2 REPLICA) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {sortedDispenserKeys.map((dispKey) => {
-          const matchedNozzles = dispensersMap[dispKey];
+          const matchedNozzles = [...dispensersMap[dispKey]].sort((a, b) =>
+            a._nozzleLabel.localeCompare(b._nozzleLabel, undefined, { numeric: true, sensitivity: 'base' })
+          );
 
           return (
             <div 

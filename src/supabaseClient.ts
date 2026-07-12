@@ -296,7 +296,10 @@ export async function fetchTransactionsFromSupabase(): Promise<SalesTransaction[
   try {
     const adminClient = getSupabaseAdminClient();
     const client = adminClient || getSupabaseClient();
-    const { data, error } = await client.from('sales_transactions').select('*');
+    const { data, error } = await client
+      .from('sales_transactions')
+      .select('*')
+      .order('created_at', { ascending: false });
     if (error) {
       console.error('Error fetching transactions:', error);
       return null;

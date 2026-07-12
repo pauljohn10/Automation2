@@ -113,7 +113,15 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (dbStations && dbStations.length > 0) setStations(dbStations);
           if (dbTanks) setTanks(dbTanks);
           if (dbPumps) setPumps(dbPumps);
-          if (dbTransactions) setTransactions(dbTransactions.sort((a, b) => b.id.localeCompare(a.id)));
+          if (dbTransactions) {
+            setTransactions(dbTransactions.sort((a, b) => {
+              const matchA = a.id.match(/\d+/);
+              const matchB = b.id.match(/\d+/);
+              const timeA = matchA ? parseInt(matchA[0], 10) : 0;
+              const timeB = matchB ? parseInt(matchB[0], 10) : 0;
+              return timeB - timeA;
+            }));
+          }
           if (dbAudits) setAuditLogs(dbAudits.sort((a, b) => b.id.localeCompare(a.id)));
         }).catch(err => console.warn('Background sync failed:', err));
       }
@@ -254,7 +262,13 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       setTanks(mergedTanks);
       setPumps(mergedPumps);
-      setTransactions(mergedTransactions.sort((a, b) => b.id.localeCompare(a.id)));
+      setTransactions(mergedTransactions.sort((a, b) => {
+        const matchA = a.id.match(/\d+/);
+        const matchB = b.id.match(/\d+/);
+        const timeA = matchA ? parseInt(matchA[0], 10) : 0;
+        const timeB = matchB ? parseInt(matchB[0], 10) : 0;
+        return timeB - timeA;
+      }));
       setAuditLogs(mergedAudits.sort((a, b) => b.id.localeCompare(a.id)));
 
       // Update sessionStorage / localStorage cache
