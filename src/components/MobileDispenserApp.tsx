@@ -468,7 +468,7 @@ export const MobileDispenserApp: React.FC = () => {
 
               {/* Transactions List */}
               {(() => {
-                const stationTxs = transactions.filter(t => t.stationId === session.activeStationId);
+                const stationTxs = transactions.filter(t => t.stationId === session.activeStationId && t.status === 'FINISHED');
                 
                 const filtered = stationTxs.filter(t => {
                   const matchSearch = 
