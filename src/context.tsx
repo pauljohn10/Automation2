@@ -52,7 +52,7 @@ interface FuelSystemContextType {
   addCustomAuditLog: (action: string, details: string, stationId?: string) => void;
   clearAllData: () => void;
   refreshAllFromSupabase: () => Promise<{ success: boolean; message: string }>;
-  updateTankLevel: (tankId: string, level: number) => Promise<{ success: boolean; message: string }>;
+  updateTankLevel: (tankId: string, level: number, capacity?: number) => Promise<{ success: boolean; message: string }>;
 }
 
 const FuelSystemContext = createContext<FuelSystemContextType | undefined>(undefined);
@@ -728,11 +728,16 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   };
 
-  const updateTankLevel = async (tankId: string, level: number): Promise<{ success: boolean; message: string }> => {
+  const updateTankLevel = async (tankId: string, level: number, capacity?: number): Promise<{ success: boolean; message: string }> => {
     const config = getSupabaseConfig();
     let dbSuccess = false;
     let errorMessage = '';
     const timestamp = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+
+    const tank = tanks.find(t => t.id === tankId);
+    if (!tank) return { success: false, message: 'Tank not found' };
+
+    const finalCapacity = capacity !== undefined ? capacity : tank.capacity;
 
     if (config.isConfigured) {
       try {
@@ -741,6 +746,7 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           .from('fuel_tanks')
           .update({
             currentLevel: level,
+            capacity: finalCapacity,
             lastMeasurementTime: timestamp
           })
           .eq('id', tankId);
@@ -756,12 +762,10 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     }
 
-    const tank = tanks.find(t => t.id === tankId);
-    if (!tank) return { success: false, message: 'Tank not found' };
-
     const updated = {
       ...tank,
       currentLevel: level,
+      capacity: finalCapacity,
       lastMeasurementTime: timestamp
     };
 
@@ -769,13 +773,13 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     addCustomAuditLog(
       'TANK_LEVEL_UPDATE',
-      `Manual telemetry alignment: updated ${tank.label} level to ${level.toLocaleString()} Liters.`,
+      `Manual telemetry alignment: updated ${tank.label} level to ${level.toLocaleString()} Liters, capacity to ${finalCapacity.toLocaleString()} Liters.`,
       tank.stationId
     );
 
     return { 
       success: true, 
-      message: dbSuccess ? 'Tank level configuration synchronized successfully with Supabase.' : `Local update applied. Supabase sync offline: ${errorMessage}` 
+      message: dbSuccess ? 'Tank configuration synchronized successfully with Supabase.' : `Local update applied. Supabase sync offline: ${errorMessage}` 
     };
   };
 

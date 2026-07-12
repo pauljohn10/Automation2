@@ -62,6 +62,7 @@ export const TankMonitor: React.FC = () => {
   // Modal and custom notifier states
   const [selectedTankId, setSelectedTankId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState<string>('');
+  const [capacityValue, setCapacityValue] = useState<string>('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [successNotif, setSuccessNotif] = useState<string | null>(null);
@@ -155,14 +156,15 @@ export const TankMonitor: React.FC = () => {
   // Handler for tank click (Rule 2)
   const handleTankClick = (tank: FuelTank) => {
     const effectiveRole = session.originalRole || session.role;
-    if (effectiveRole !== 'SUPER_ADMIN' && effectiveRole !== 'ADMIN') {
+    if (effectiveRole !== 'SUPER_ADMIN' && effectiveRole !== 'ADMIN' && effectiveRole !== 'STATION_ADMIN') {
       alert('Access Denied: Only Super Admin and Admin can configure tank telemetry.');
       return;
     }
-    // Allow SUPER_ADMIN and ADMIN to configure telemetry for tanks belonging to the active station context
+    // Allow SUPER_ADMIN, ADMIN and STATION_ADMIN to configure telemetry for tanks belonging to the active station context
     if (tank.stationId === session.activeStationId) {
       setSelectedTankId(tank.id);
       setInputValue(String(tank.currentLevel));
+      setCapacityValue(String(tank.capacity));
       setValidationError(null);
     }
   };
@@ -173,15 +175,29 @@ export const TankMonitor: React.FC = () => {
     if (!selectedTankId) return;
 
     const effectiveRole = session.originalRole || session.role;
-    if (effectiveRole !== 'SUPER_ADMIN' && effectiveRole !== 'ADMIN') {
+    if (effectiveRole !== 'SUPER_ADMIN' && effectiveRole !== 'ADMIN' && effectiveRole !== 'STATION_ADMIN') {
       setValidationError('Access Denied: Only Super Admin and Admin can configure tank telemetry.');
       return;
     }
 
     const numValue = parseFloat(inputValue);
-    // Frontend validation: value must not be less than 0 and cannot exceed 45000 Liters
-    if (isNaN(numValue) || inputValue.trim() === '' || numValue < 0 || numValue > 45000) {
-      setValidationError('Value must be a valid number between 0 and 45,000 Liters.');
+    const numCapacity = parseFloat(capacityValue);
+
+    // Validate capacity
+    if (isNaN(numCapacity) || capacityValue.trim() === '' || numCapacity <= 0) {
+      setValidationError('Capacity must be a valid number greater than 0.');
+      return;
+    }
+
+    // Validate fuel level
+    if (isNaN(numValue) || inputValue.trim() === '' || numValue < 0) {
+      setValidationError('Fuel level must be a valid number greater than or equal to 0.');
+      return;
+    }
+
+    // Level cannot exceed capacity
+    if (numValue > numCapacity) {
+      setValidationError('Current fuel level cannot exceed tank capacity.');
       return;
     }
 
@@ -189,7 +205,7 @@ export const TankMonitor: React.FC = () => {
     setValidationError(null);
 
     try {
-      const res = await updateTankLevel(selectedTankId, numValue);
+      const res = await updateTankLevel(selectedTankId, numValue, numCapacity);
       if (res.success) {
         setSuccessNotif(`Successfully updated volume asset to ${numValue.toLocaleString()} L.`);
         setTimeout(() => setSuccessNotif(null), 4000);
@@ -542,8 +558,8 @@ export const TankMonitor: React.FC = () => {
                   <span className="font-black text-slate-800">{selectedTank.label} ({selectedTank.fuelType})</span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
-                  <span className="font-bold text-[#475569]">Max Tank Capacity:</span>
-                  <span className="font-extrabold text-indigo-700 font-mono">45,000 L</span>
+                  <span className="font-bold text-[#475569]">Previous Tank Capacity:</span>
+                  <span className="font-extrabold text-indigo-700 font-mono">{selectedTank.capacity.toLocaleString()} L</span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
                   <span className="font-bold text-[#475569]">Previous Fuel Level:</span>
@@ -551,6 +567,32 @@ export const TankMonitor: React.FC = () => {
                 </div>
               </div>
 
+              {/* Tank Capacity Input */}
+              <div className="space-y-1.5">
+                <label htmlFor="tank-capacity-input" className="block text-xs font-black text-slate-700 uppercase tracking-wider">
+                  Enter Tank Capacity (Liters)
+                </label>
+                <div className="relative">
+                  <input
+                    id="tank-capacity-input"
+                    type="number"
+                    step="any"
+                    min="0.1"
+                    value={capacityValue}
+                    onChange={(e) => {
+                      setCapacityValue(e.target.value);
+                      if (validationError) setValidationError(null);
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-800 font-mono focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all placeholder:text-slate-400"
+                    placeholder="e.g. 45000"
+                    required
+                    disabled={isSaving}
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">L</span>
+                </div>
+              </div>
+
+              {/* Fuel Level Input */}
               <div className="space-y-1.5">
                 <label htmlFor="fuel-level-input" className="block text-xs font-black text-slate-700 uppercase tracking-wider">
                   Enter Actual Fuel Level Volume (Liters)
@@ -561,7 +603,6 @@ export const TankMonitor: React.FC = () => {
                     type="number"
                     step="any"
                     min="0"
-                    max="45000"
                     value={inputValue}
                     onChange={(e) => {
                       setInputValue(e.target.value);
