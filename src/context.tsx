@@ -461,25 +461,8 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
 
     // Register a specific replenishment transaction log
-    const txStartId = `tx-delivery-start-${Date.now()}`;
     const txEndId = `tx-delivery-end-${Date.now()}`;
     const pricePerL = activeStation?.fuelPricing[tank.fuelType] || 2.18;
-
-    const startTx: SalesTransaction = {
-      id: txStartId,
-      stationId: tank.stationId,
-      timestamp: timestamp,
-      pumpId: 'DELIVERY_BAY',
-      fuelType: tank.fuelType,
-      volume: 0,
-      heightBefore: Math.round((currentLevel / targetCapacity) * 1000),
-      heightAfter: Math.round((currentLevel / targetCapacity) * 1000),
-      temperature: tank.temperature + (Math.random() * 0.4 - 0.2),
-      waterLevel: tank.waterLevel,
-      pricePerLitre: pricePerL,
-      amount: 0,
-      status: 'STARTED'
-    };
 
     const endTx: SalesTransaction = {
       id: txEndId,
@@ -497,10 +480,9 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       status: 'FINISHED'
     };
 
-    setTransactions(prev => [startTx, endTx, ...prev]);
+    setTransactions(prev => [endTx, ...prev]);
 
     // Save logs to database
-    insertTransactionInSupabase(startTx);
     insertTransactionInSupabase(endTx);
 
     addCustomAuditLog(
@@ -539,28 +521,8 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     const timestamp = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
 
-    // 1. Record start transaction
-    const txStartId = `tx-sale-start-${Date.now()}`;
+    // Store baseline sensor height before dispensing
     const heightBefore = Math.round((supplyTank.currentLevel / supplyTank.capacity) * 1000);
-
-    const startTx: SalesTransaction = {
-      id: txStartId,
-      stationId: pump.stationId,
-      timestamp: timestamp,
-      pumpId: pump.id,
-      fuelType: grade,
-      volume: 0,
-      heightBefore: heightBefore,
-      heightAfter: heightBefore,
-      temperature: supplyTank.temperature,
-      waterLevel: supplyTank.waterLevel,
-      pricePerLitre: unitPrice,
-      amount: 0,
-      status: 'STARTED'
-    };
-
-    setTransactions(prev => [startTx, ...prev]);
-    insertTransactionInSupabase(startTx);
 
     // 2. Transition pump status from IDLE to PUMPING
     const pumpingPumpState = {
@@ -638,9 +600,34 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setPumps(prevPumps => prevPumps.map(p => p.id === pumpId ? completedPumpState : p));
         upsertPumpInSupabase(completedPumpState);
 
+        // --- AUTOMATICALLY RECORD THE COMPLETED sales_transactions ROW ---
+        const finalBill = volume * unitPrice;
+        const heightAfter = Math.round((Math.max(0, supplyTank.currentLevel - volume) / supplyTank.capacity) * 1000);
+        const txEndId = `tx-sale-${Date.now()}`;
+        
+        const endTx: SalesTransaction = {
+          id: txEndId,
+          stationId: pump.stationId,
+          timestamp: timestamp,
+          pumpId: pump.id,
+          fuelType: grade,
+          volume: volume,
+          heightBefore: heightBefore,
+          heightAfter: heightAfter,
+          temperature: supplyTank.temperature,
+          waterLevel: supplyTank.waterLevel,
+          pricePerLitre: unitPrice,
+          amount: finalBill,
+          status: 'FINISHED',
+          operator: session.name || 'Station Operator'
+        };
+
+        setTransactions(prev => [endTx, ...prev]);
+        insertTransactionInSupabase(endTx);
+
         addCustomAuditLog(
           'FUEL_DISPENSE_AUTO_DEDUCTED',
-          `Dispensing completed for ${volume.toFixed(2)}L of ${grade} at ${pump.label}. Sequentially deducted: ${deductionLogs.join(' and ')}. Awaiting manual supervisor verification.`,
+          `Dispensing completed for ${volume.toFixed(2)}L of ${grade} at ${pump.label}. Sequentially deducted: ${deductionLogs.join(' and ')}. Transaction #${txEndId} automatically recorded.`,
           pump.stationId
         );
       } else {
@@ -671,40 +658,6 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const unitPrice = actualStation?.fuelPricing[grade] || 2.18;
     const finalBill = volume * unitPrice;
     
-    const timestamp = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
-
-    // Use current active or representative tank index
-    const candidateTanks = tanks
-      .filter(t => t.stationId === pump.stationId && t.fuelType === grade)
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
-    const supplyTank = candidateTanks.find(t => t.currentLevel > 0) || candidateTanks[0];
-
-    const heightBefore = supplyTank ? Math.round(((supplyTank.currentLevel + volume) / supplyTank.capacity) * 1000) : 588;
-    const heightAfter = supplyTank ? Math.round((supplyTank.currentLevel / supplyTank.capacity) * 1000) : 588;
-
-    // 1. Records finish transaction log
-    const txEndId = `tx-sale-end-${Date.now()}`;
-    const endTx: SalesTransaction = {
-      id: txEndId,
-      stationId: pump.stationId,
-      timestamp: timestamp,
-      pumpId: pump.id,
-      fuelType: grade,
-      volume: volume,
-      heightBefore: heightBefore,
-      heightAfter: heightAfter,
-      temperature: (supplyTank?.temperature || 33.8) + 0.1,
-      waterLevel: supplyTank?.waterLevel || 0.00,
-      pricePerLitre: unitPrice,
-      amount: finalBill,
-      status: 'FINISHED',
-      operator: operator || session.name || 'Station Operator',
-      customer: customer || undefined
-    };
-
-    setTransactions(prev => [endTx, ...prev]);
-    insertTransactionInSupabase(endTx);
-
     // 2. Save central AuditLog
     addCustomAuditLog(
       'FUEL_DISPENSE',

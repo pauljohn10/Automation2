@@ -14,7 +14,7 @@ export const PumpMonitor: React.FC = () => {
   // Filter pumps belonging to current active station
   const stationPumps = pumps.filter(p => p.stationId === session.activeStationId);
   const stationTanks = tanks.filter(t => t.stationId === session.activeStationId);
-  const stationTx = transactions.filter(tx => tx.stationId === session.activeStationId);
+  const stationTx = transactions.filter(tx => tx.stationId === session.activeStationId && tx.status === 'FINISHED');
 
   // Simulation internal values
   const [isCommandDeckOpen, setIsCommandDeckOpen] = useState(false);
