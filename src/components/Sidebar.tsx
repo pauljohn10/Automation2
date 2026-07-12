@@ -20,7 +20,9 @@ import {
   LogOut,
   Users,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  HelpCircle,
+  X
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -31,6 +33,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) => {
   const { session, activeStation, setSession, stations } = useFuelSystem();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   const isHQ = (session.role === 'SUPER_ADMIN' || session.role === 'ADMIN' || session.role === 'VIEWER') && !session.isStationContext;
 
@@ -309,6 +312,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
         </button>
 
         <button
+          onClick={() => setShowHelpModal(true)}
+          className={`w-full bg-[#f0f9ff] hover:bg-[#e0f2fe] text-[#0369a1] rounded-lg text-xs font-bold transition-all flex items-center justify-center border border-[#bae6fd] ${
+            isSidebarCollapsed ? 'h-10 w-10 p-0' : 'p-2 gap-2'
+          }`}
+          title={isSidebarCollapsed ? "Help & System Info" : undefined}
+        >
+          <HelpCircle size={13} className="shrink-0" />
+          {!isSidebarCollapsed && <span>Help & System Info</span>}
+        </button>
+
+        <button
           onClick={handleLogout}
           className={`w-full bg-[#fee2e2] hover:bg-[#fecaca] text-[#991b1b] rounded-lg text-xs font-bold transition-all flex items-center justify-center border border-[#fca5a5] ${
             isSidebarCollapsed ? 'h-10 w-10 p-0' : 'p-2 gap-2'
@@ -319,6 +333,70 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
           {!isSidebarCollapsed && <span>Exit Operational session</span>}
         </button>
       </div>
+
+      {/* Help & About Modal */}
+      {showHelpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden">
+            {/* Modal Header */}
+            <div className="bg-[#1e293b] px-6 py-4 flex items-center justify-between text-white border-b border-slate-700">
+              <div className="flex items-center gap-2">
+                <HelpCircle size={18} className="text-[#8c7dfc]" />
+                <span className="text-sm font-black uppercase tracking-wider">Help & System Info</span>
+              </div>
+              <button 
+                onClick={() => setShowHelpModal(false)}
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-4 text-left">
+              <div className="flex items-center gap-4 pb-4 border-b border-slate-100">
+                <div className="w-12 h-12 rounded-xl bg-linear-to-tr from-[#6c5dd3] to-[#8c7dfc] flex items-center justify-center text-white font-extrabold text-xl shadow-md shadow-[#6c5dd3]/20 border border-white/10 shrink-0">
+                  F
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-800 tracking-tight leading-none uppercase">
+                    Noor Fuel Automation
+                  </h3>
+                  <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[9px] font-black tracking-wider bg-indigo-50 text-indigo-600 border border-indigo-100 uppercase">
+                    System Version 1.0.0
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-3 text-xs text-slate-600 font-semibold leading-relaxed">
+                <div>
+                  <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 block mb-1">Created By</span>
+                  <p className="text-slate-855 font-bold text-sm bg-slate-50 px-3 py-2 rounded-lg border border-slate-150 flex items-center gap-2">
+                    👨‍💻 <span className="text-[#6c5dd3] font-black">Paul John</span>
+                  </p>
+                </div>
+
+                <div>
+                  <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 block mb-1">About the System</span>
+                  <p className="bg-slate-50 px-3 py-2.5 rounded-lg border border-slate-150 leading-relaxed text-[11px]">
+                    Noor Fuel Automation is a modern telemetry and ERP software system designed for fuel pump monitoring, real-time tank level tracking, dynamic pricing distribution, and operator billing reconciliation.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setShowHelpModal(false)}
+                className="bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white text-xs font-black uppercase tracking-wider px-5 py-2 rounded-lg transition-all shadow-xs cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 };

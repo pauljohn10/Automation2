@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Menu, dialog } = require('electron');
 const path = require('path');
 
 function createWindow() {
@@ -30,8 +30,64 @@ function createWindow() {
   }
 }
 
+function createMenu() {
+  const template = [
+    {
+      label: 'File',
+      submenu: [
+        { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'About Noor Fuel Automation',
+          click: (menuItem, browserWindow) => {
+            dialog.showMessageBox(browserWindow, {
+              type: 'info',
+              title: 'About System',
+              message: 'Noor Fuel Automation',
+              detail: 'Version: 1.0.0\nCreated by: Paul John\n\nAdvanced Fuel Management and ERP Telemetry System.'
+            });
+          }
+        }
+      ]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 app.whenReady().then(() => {
   createWindow();
+  createMenu();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
