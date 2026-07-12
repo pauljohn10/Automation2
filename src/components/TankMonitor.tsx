@@ -244,9 +244,9 @@ export const TankMonitor: React.FC = () => {
           const ullage = tank.capacity - tank.currentLevel;
           const fuelColor = getFuelColor(tank.fuelType);
 
-          // Render click border states strictly for SUPER_ADMIN and ADMIN
+          // Render click border states strictly for SUPER_ADMIN, ADMIN and STATION_ADMIN
           const effectiveRole = session.originalRole || session.role;
-          const isAuthorized = effectiveRole === 'SUPER_ADMIN' || effectiveRole === 'ADMIN';
+          const isAuthorized = effectiveRole === 'SUPER_ADMIN' || effectiveRole === 'ADMIN' || effectiveRole === 'STATION_ADMIN';
           const isHighlighted = tank.label === 'Tank 02';
 
           return (

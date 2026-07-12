@@ -86,9 +86,9 @@ export const StationsDirectory: React.FC = () => {
   const [dispenserCount, setDispenserCount] = useState(1);
   const [pumpsPerDispenser, setPumpsPerDispenser] = useState(2);
   const [dispenserNozzles, setDispenserNozzles] = useState<number[]>([2]);
-  const [tankConfigs, setTankConfigs] = useState<Array<{ label: string, fuelType: FuelGrade, capacity: number }>>([
-    { label: 'Tank 01', fuelType: 'GAS91', capacity: 45000 },
-    { label: 'Tank 02', fuelType: 'GAS95', capacity: 45000 }
+  const [tankConfigs, setTankConfigs] = useState<Array<{ label: string, fuelType: FuelGrade, capacity: number, currentLevel: number }>>([
+    { label: 'Tank 01', fuelType: 'GAS91', capacity: 45000, currentLevel: 11000 },
+    { label: 'Tank 02', fuelType: 'GAS95', capacity: 45000, currentLevel: 11000 }
   ]);
   const [pumpConfigs, setPumpConfigs] = useState<Array<{ dispenserNo: number, pumpNo: number, label: string, fuelType: FuelGrade }>>([
     { dispenserNo: 1, pumpNo: 1, label: 'Dispenser 01 - Pump 1', fuelType: 'GAS91' },
@@ -107,7 +107,7 @@ export const StationsDirectory: React.FC = () => {
   const [editPassword, setEditPassword] = useState('');
   const [editPriceGas91, setEditPriceGas91] = useState('');
   const [editPriceGas95, setEditPriceGas95] = useState('');
-  const [editTankConfigs, setEditTankConfigs] = useState<Array<{ id?: string; label: string; fuelType: FuelGrade; capacity: number }>>([]);
+  const [editTankConfigs, setEditTankConfigs] = useState<Array<{ id?: string; label: string; fuelType: FuelGrade; capacity: number; currentLevel?: number }>>([]);
   const [editDispenserCount, setEditDispenserCount] = useState(1);
   const [editDispenserNozzles, setEditDispenserNozzles] = useState<number[]>([]);
   const [editPumpConfigs, setEditPumpConfigs] = useState<Array<{ id?: string; dispenserNo: number; pumpNo: number; label: string; fuelType: FuelGrade; status?: string }>>([]);
@@ -176,7 +176,8 @@ export const StationsDirectory: React.FC = () => {
           next.push({
             label: `Tank ${String(i + 1).padStart(2, '0')}`,
             fuelType: fuels[i % fuels.length],
-            capacity: 45000
+            capacity: 45000,
+            currentLevel: 11000
           });
         }
       } else if (next.length > safeCount) {
@@ -186,7 +187,7 @@ export const StationsDirectory: React.FC = () => {
     });
   };
 
-  const updateTankConfig = (index: number, key: 'fuelType' | 'capacity', value: any) => {
+  const updateTankConfig = (index: number, key: 'fuelType' | 'capacity' | 'currentLevel', value: any) => {
     setTankConfigs(prev => prev.map((c, i) => i === index ? { ...c, [key]: value } : c));
   };
 
@@ -280,7 +281,7 @@ export const StationsDirectory: React.FC = () => {
       label: tc.label,
       fuelType: tc.fuelType,
       capacity: tc.capacity,
-      currentLevel: 0, 
+      currentLevel: tc.currentLevel !== undefined ? tc.currentLevel : 0, 
       temperature: 34.00,
       waterLevel: 0.00,
       lastMeasurementTime: timestamp
@@ -384,7 +385,8 @@ export const StationsDirectory: React.FC = () => {
       id: t.id,
       label: t.label,
       fuelType: t.fuelType,
-      capacity: t.capacity
+      capacity: t.capacity,
+      currentLevel: t.currentLevel
     })));
 
     const stationDispenserCount = station.dispenserCount || 1;
@@ -427,7 +429,8 @@ export const StationsDirectory: React.FC = () => {
           next.push({
             label: `Tank ${String(i + 1).padStart(2, '0')}`,
             fuelType: 'GAS91',
-            capacity: 45000
+            capacity: 45000,
+            currentLevel: 11000
           });
         }
         return next;
@@ -499,6 +502,24 @@ export const StationsDirectory: React.FC = () => {
       return;
     }
 
+    // Validate edit modal capacities & current levels
+    for (const t of editTankConfigs) {
+      const cap = parseFloat(t.capacity.toString()) || 0;
+      const lvl = t.currentLevel !== undefined ? parseFloat(t.currentLevel.toString()) : 0;
+      if (cap <= 0) {
+        setSaveError(`Capacity for ${t.label} must be greater than 0.`);
+        return;
+      }
+      if (lvl < 0) {
+        setSaveError(`Fuel level for ${t.label} must be greater than or equal to 0.`);
+        return;
+      }
+      if (lvl > cap) {
+        setSaveError(`Current fuel level for ${t.label} (${lvl.toLocaleString()} L) cannot exceed its capacity (${cap.toLocaleString()} L).`);
+        return;
+      }
+    }
+
     try {
       setSaveError(null);
       const updatedPricingJson = {
@@ -549,17 +570,22 @@ export const StationsDirectory: React.FC = () => {
         });
 
       // 3. Sync Tanks (inserts/deletes)
-      const tanksWithIds = editTankConfigs.map((t, index) => ({
-        id: t.id || `tank-edit-${index + 1}-${editingStation.id}`,
-        stationId: editingStation.id,
-        label: t.label || `Tank ${String(index + 1).padStart(2, '0')}`,
-        fuelType: t.fuelType,
-        capacity: parseFloat(t.capacity.toString()) || 45050,
-        currentLevel: 11000,
-        temperature: 34.0,
-        waterLevel: 0.0,
-        lastMeasurementTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-      }));
+      const tanksWithIds = editTankConfigs.map((t, index) => {
+        const existingTank = tanks.find(orig => orig.id === t.id);
+        const capacityVal = parseFloat(t.capacity.toString()) || 45050;
+        const currentLevelVal = t.currentLevel !== undefined ? parseFloat(t.currentLevel.toString()) : (existingTank ? existingTank.currentLevel : 11000);
+        return {
+          id: t.id || `tank-edit-${index + 1}-${editingStation.id}`,
+          stationId: editingStation.id,
+          label: t.label || `Tank ${String(index + 1).padStart(2, '0')}`,
+          fuelType: t.fuelType,
+          capacity: capacityVal,
+          currentLevel: currentLevelVal,
+          temperature: existingTank ? existingTank.temperature : 34.0,
+          waterLevel: existingTank ? existingTank.waterLevel : 0.0,
+          lastMeasurementTime: existingTank ? existingTank.lastMeasurementTime : new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+        };
+      });
 
       const { data: dbTanks } = await supabase.from('fuel_tanks').select('id').eq('stationId', editingStation.id);
       const dbTankIds = dbTanks?.map(t => t.id) || [];
@@ -1136,26 +1162,46 @@ export const StationsDirectory: React.FC = () => {
                         <div key={index} className="flex items-center gap-2 bg-white p-2 rounded border border-slate-150 justify-between">
                           <span className="font-bold text-slate-700 min-w-[50px]">{tc.label}</span>
                           <div className="flex items-center gap-1.5">
-                            <select
-                              value={tc.fuelType}
-                              onChange={(e) => updateTankConfig(index, 'fuelType', e.target.value as FuelGrade)}
-                              className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-700 focus:outline-none"
-                            >
-                              <option value="GAS91">GAS91</option>
-                              <option value="GAS95">GAS95</option>
-                              <option value="GAS98">GAS98</option>
-                              <option value="DIESEL">DIESEL</option>
-                            </select>
-                            <input
-                              type="number"
-                              min="5000"
-                              max="100000"
-                              step="5000"
-                              value={tc.capacity}
-                              onChange={(e) => updateTankConfig(index, 'capacity', Number(e.target.value))}
-                              className="w-14 bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-800 text-right focus:outline-none"
-                            />
-                            <span className="text-[9px] text-slate-400">L</span>
+                            {/* Product Select */}
+                            <div className="flex flex-col text-[8px] text-slate-400 font-bold text-left leading-none font-sans">
+                              <span>PRODUCT</span>
+                              <select
+                                value={tc.fuelType}
+                                onChange={(e) => updateTankConfig(index, 'fuelType', e.target.value as FuelGrade)}
+                                className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-700 focus:outline-none mt-0.5"
+                              >
+                                <option value="GAS91">GAS91</option>
+                                <option value="GAS95">GAS95</option>
+                                <option value="GAS98">GAS98</option>
+                                <option value="DIESEL">DIESEL</option>
+                              </select>
+                            </div>
+
+                            {/* Capacity Input */}
+                            <div className="flex flex-col text-[8px] text-slate-400 font-bold text-left leading-none font-sans">
+                              <span>CAPACITY (L)</span>
+                              <input
+                                type="number"
+                                min="0"
+                                max="100000"
+                                value={tc.capacity}
+                                onChange={(e) => updateTankConfig(index, 'capacity', Math.max(0, parseInt(e.target.value) || 0))}
+                                className="w-16 bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-808 text-right focus:outline-none mt-0.5"
+                              />
+                            </div>
+
+                            {/* Current Level Input */}
+                            <div className="flex flex-col text-[8px] text-slate-400 font-bold text-left leading-none font-sans">
+                              <span>LEVEL (L)</span>
+                              <input
+                                type="number"
+                                min="0"
+                                max={tc.capacity}
+                                value={tc.currentLevel}
+                                onChange={(e) => updateTankConfig(index, 'currentLevel', Math.max(0, parseInt(e.target.value) || 0))}
+                                className="w-16 bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-808 text-right focus:outline-none mt-0.5"
+                              />
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1448,37 +1494,60 @@ export const StationsDirectory: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="space-y-1.5 max-h-32 overflow-y-auto pr-0.5">
+                                <div className="space-y-1.5 max-h-32 overflow-y-auto pr-0.5">
                       {editTankConfigs.map((tc, tIdx) => (
                         <div key={tIdx} className="flex items-center gap-2 bg-white p-2 rounded border border-slate-150 justify-between">
-                          <span className="font-bold text-slate-600 truncate max-w-[65px]">{tc.label}</span>
-                          <div className="flex items-center gap-1">
-                            <select
-                              value={tc.fuelType}
-                              onChange={(e) => {
-                                const val = e.target.value as FuelGrade;
-                                setEditTankConfigs(prev => prev.map((t, i) => i === tIdx ? { ...t, fuelType: val } : t));
-                              }}
-                              className="bg-slate-55 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-750 focus:outline-none"
-                            >
-                              <option value="GAS91">GAS91</option>
-                              <option value="GAS95">GAS95</option>
-                              <option value="GAS98">GAS98</option>
-                              <option value="DIESEL">DIESEL</option>
-                            </select>
-                            <input
-                              type="number"
-                              min="5000"
-                              max="120000"
-                              step="5000"
-                              value={tc.capacity}
-                              onChange={(e) => {
-                                const val = Math.max(0, parseInt(e.target.value) || 0);
-                                setEditTankConfigs(prev => prev.map((t, i) => i === tIdx ? { ...t, capacity: val } : t));
-                              }}
-                              className="w-14 bg-slate-55 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-800 text-right focus:outline-none"
-                            />
-                            <span className="text-[9px] text-slate-400">L</span>
+                          <span className="font-bold text-slate-600 truncate max-w-[55px]">{tc.label}</span>
+                          <div className="flex items-center gap-1.5">
+                            {/* Product Grade Select */}
+                            <div className="flex flex-col text-[8px] text-slate-400 font-bold text-left leading-none">
+                              <span>PRODUCT</span>
+                              <select
+                                value={tc.fuelType}
+                                onChange={(e) => {
+                                  const val = e.target.value as FuelGrade;
+                                  setEditTankConfigs(prev => prev.map((t, i) => i === tIdx ? { ...t, fuelType: val } : t));
+                                }}
+                                className="bg-slate-55 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-750 focus:outline-none mt-0.5"
+                              >
+                                <option value="GAS91">GAS91</option>
+                                <option value="GAS95">GAS95</option>
+                                <option value="GAS98">GAS98</option>
+                                <option value="DIESEL">DIESEL</option>
+                              </select>
+                            </div>
+
+                            {/* Capacity Input */}
+                            <div className="flex flex-col text-[8px] text-slate-400 font-bold text-left leading-none">
+                              <span>CAPACITY (L)</span>
+                              <input
+                                type="number"
+                                min="0"
+                                max="1000000"
+                                value={tc.capacity}
+                                onChange={(e) => {
+                                  const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                  setEditTankConfigs(prev => prev.map((t, i) => i === tIdx ? { ...t, capacity: val } : t));
+                                }}
+                                className="w-16 bg-slate-55 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-808 text-right focus:outline-none mt-0.5"
+                              />
+                            </div>
+
+                            {/* Current Level Input */}
+                            <div className="flex flex-col text-[8px] text-slate-400 font-bold text-left leading-none">
+                              <span>LEVEL (L)</span>
+                              <input
+                                type="number"
+                                min="0"
+                                max={tc.capacity}
+                                value={tc.currentLevel !== undefined ? tc.currentLevel : 11000}
+                                onChange={(e) => {
+                                  const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                  setEditTankConfigs(prev => prev.map((t, i) => i === tIdx ? { ...t, currentLevel: val } : t));
+                                }}
+                                className="w-16 bg-slate-55 border border-slate-200 rounded px-1 py-0.5 text-[9px] font-semibold text-slate-808 text-right focus:outline-none mt-0.5"
+                              />
+                            </div>
                           </div>
                         </div>
                       ))}
