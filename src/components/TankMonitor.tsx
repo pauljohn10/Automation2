@@ -58,6 +58,7 @@ const getShiftedTime = (timeStr: string, minutesToSubtract: number = 20): string
 
 export const TankMonitor: React.FC = () => {
   const { tanks, transactions, session, resetTankWater, updateTankLevel } = useFuelSystem();
+  const effectiveRole = session.originalRole || session.role;
 
   // Modal and custom notifier states
   const [selectedTankId, setSelectedTankId] = useState<string | null>(null);
@@ -155,12 +156,11 @@ export const TankMonitor: React.FC = () => {
 
   // Handler for tank click (Rule 2)
   const handleTankClick = (tank: FuelTank) => {
-    const effectiveRole = session.originalRole || session.role;
-    if (effectiveRole !== 'SUPER_ADMIN' && effectiveRole !== 'ADMIN' && effectiveRole !== 'STATION_ADMIN') {
+    if (effectiveRole !== 'SUPER_ADMIN' && effectiveRole !== 'ADMIN') {
       alert('Access Denied: Only Super Admin and Admin can configure tank telemetry.');
       return;
     }
-    // Allow SUPER_ADMIN, ADMIN and STATION_ADMIN to configure telemetry for tanks belonging to the active station context
+    // Allow SUPER_ADMIN and ADMIN to configure telemetry for tanks belonging to the active station context
     if (tank.stationId === session.activeStationId) {
       setSelectedTankId(tank.id);
       setInputValue(String(tank.currentLevel));
@@ -174,8 +174,7 @@ export const TankMonitor: React.FC = () => {
     e.preventDefault();
     if (!selectedTankId) return;
 
-    const effectiveRole = session.originalRole || session.role;
-    if (effectiveRole !== 'SUPER_ADMIN' && effectiveRole !== 'ADMIN' && effectiveRole !== 'STATION_ADMIN') {
+    if (effectiveRole !== 'SUPER_ADMIN' && effectiveRole !== 'ADMIN') {
       setValidationError('Access Denied: Only Super Admin and Admin can configure tank telemetry.');
       return;
     }
@@ -244,9 +243,8 @@ export const TankMonitor: React.FC = () => {
           const ullage = tank.capacity - tank.currentLevel;
           const fuelColor = getFuelColor(tank.fuelType);
 
-          // Render click border states strictly for SUPER_ADMIN, ADMIN and STATION_ADMIN
-          const effectiveRole = session.originalRole || session.role;
-          const isAuthorized = effectiveRole === 'SUPER_ADMIN' || effectiveRole === 'ADMIN' || effectiveRole === 'STATION_ADMIN';
+          // Render click border states strictly for SUPER_ADMIN and ADMIN
+          const isAuthorized = effectiveRole === 'SUPER_ADMIN' || effectiveRole === 'ADMIN';
           const isHighlighted = tank.label === 'Tank 02';
 
           return (
@@ -637,9 +635,9 @@ export const TankMonitor: React.FC = () => {
                 >
                   Cancel
                 </button>
-                <button
+                 <button
                   type="submit"
-                  disabled={isSaving || (session.originalRole || session.role) === 'VIEWER' || (session.originalRole || session.role) === 'OPERATOR'}
+                  disabled={isSaving || (effectiveRole !== 'SUPER_ADMIN' && effectiveRole !== 'ADMIN')}
                   className="flex-1 text-xs font-black text-white bg-indigo-600 hover:bg-indigo-700 py-2.5 px-4 rounded-lg shadow-sm transition-all duration-200 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSaving ? (
