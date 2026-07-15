@@ -870,18 +870,21 @@ export async function syncAllDataBulk(payload: {
   const client = adminClient || getSupabaseClient();
 
   try {
-    // 1. Sync stations
-    if (payload.stations.length > 0) {
-      const { data: currentDbStations } = await client.from('stations').select('id, code');
-      const dbStationMap = new Map<string, string>();
-      if (currentDbStations) {
-        currentDbStations.forEach(s => dbStationMap.set(s.code.toLowerCase(), s.id));
-      }
+    // 1. Sync stations & build ID resolution map
+    const resolvedStationIdMap = new Map<string, string>();
+    const { data: currentDbStations } = await client.from('stations').select('id, code');
+    const dbStationMap = new Map<string, string>();
+    if (currentDbStations) {
+      currentDbStations.forEach(s => dbStationMap.set(s.code.toLowerCase(), s.id));
+    }
 
+    if (payload.stations.length > 0) {
       const stationPayloads = payload.stations.map(s => {
         const matchedDbId = dbStationMap.get(s.code.toLowerCase());
+        const targetId = matchedDbId || s.id;
+        resolvedStationIdMap.set(s.id, targetId);
         return {
-          id: matchedDbId || s.id,
+          id: targetId,
           name: s.name,
           code: s.code,
           location: s.location,
@@ -903,11 +906,22 @@ export async function syncAllDataBulk(payload: {
       if (error) throw new Error(`Stations sync failed: ${error.message}`);
     }
 
+    // Populate resolvedStationIdMap for any stations that might not be in payload.stations but exist in DB
+    if (currentDbStations) {
+      // Map local station IDs that match by code to their DB counterparts
+      payload.stations.forEach(s => {
+        const dbStation = currentDbStations.find(ds => ds.code.toLowerCase() === s.code.toLowerCase());
+        if (dbStation) {
+          resolvedStationIdMap.set(s.id, dbStation.id);
+        }
+      });
+    }
+
     // 2. Sync tanks
     if (payload.tanks.length > 0) {
       const tankPayloads = payload.tanks.map(t => ({
         id: t.id,
-        stationId: t.stationId,
+        stationId: resolvedStationIdMap.get(t.stationId) || t.stationId,
         label: t.label,
         fuelType: t.fuelType,
         capacity: Number(t.capacity),
@@ -924,7 +938,7 @@ export async function syncAllDataBulk(payload: {
     if (payload.pumps.length > 0) {
       const pumpPayloads = payload.pumps.map(p => ({
         id: p.id,
-        stationId: p.stationId,
+        stationId: resolvedStationIdMap.get(p.stationId) || p.stationId,
         label: p.label,
         status: p.status,
         fuelType: p.fuelType || null,
@@ -940,7 +954,7 @@ export async function syncAllDataBulk(payload: {
     if (payload.transactions.length > 0) {
       const txPayloads = payload.transactions.map(t => ({
         id: t.id,
-        stationId: t.stationId,
+        stationId: resolvedStationIdMap.get(t.stationId) || t.stationId,
         timestamp: t.timestamp,
         pumpId: t.pumpId,
         fuelType: t.fuelType,
@@ -969,7 +983,7 @@ export async function syncAllDataBulk(payload: {
     if (payload.audits.length > 0) {
       const auditPayloads = payload.audits.map(a => ({
         id: a.id,
-        stationId: a.stationId || null,
+        stationId: a.stationId ? (resolvedStationIdMap.get(a.stationId) || a.stationId) : null,
         timestamp: a.timestamp,
         user: a.user,
         role: a.role,
@@ -993,7 +1007,7 @@ export async function syncAllDataBulk(payload: {
         const matchedDbId = dbUserMap.get(o.username.toLowerCase());
         return {
           id: matchedDbId || o.id,
-          station_id: o.station_id,
+          station_id: resolvedStationIdMap.get(o.station_id) || o.station_id,
           station_name: o.station_name,
           station_code: o.station_code,
           username: o.username,
