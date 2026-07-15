@@ -224,21 +224,6 @@ VALUES (
     3
 ) ON CONFLICT (code) DO NOTHING;
 
--- Station 3: Jeddah
-INSERT INTO stations (id, name, code, location, manager, status, "fuelPricing", username, password, "dispenserCount", "pumpsPerDispenser")
-VALUES (
-    'st-03', 
-    'Red Sea Gate - Jeddah Port', 
-    'RS-JEDD-03', 
-    'Corniche Road, Jeddah, KSA', 
-    'Faisal Al-Zahrani', 
-    'ACTIVE', 
-    '{"GAS91": 2.18, "GAS95": 2.33, "GAS98": 2.60, "DIESEL": 1.15}'::jsonb, 
-    'jeddah.supervisor', 
-    'password123', 
-    1, 
-    2
-) ON CONFLICT (code) DO NOTHING;
 
 
 -- Seed Station 1 Tanks
@@ -255,11 +240,6 @@ INSERT INTO fuel_tanks (id, "stationId", label, "fuelType", capacity, "currentLe
 ('tank-03-st-02', 'st-02', 'Tank 03', 'GAS98', 30000, 9800, 34.50, 0.00, '10/06 14:01')
 ON CONFLICT (id) DO NOTHING;
 
--- Seed Station 3 Tanks
-INSERT INTO fuel_tanks (id, "stationId", label, "fuelType", capacity, "currentLevel", temperature, "waterLevel", "lastMeasurementTime") VALUES
-('tank-01-st-03', 'st-03', 'Tank 01', 'GAS91', 50000, 14200, 31.80, 0.03, '10/06 13:58'),
-('tank-02-st-03', 'st-03', 'Tank 02', 'GAS95', 50000, 33100, 31.20, 0.00, '10/06 13:58')
-ON CONFLICT (id) DO NOTHING;
 
 
 -- Seed Station 1 Pumps
@@ -277,11 +257,6 @@ INSERT INTO fuel_pumps (id, "stationId", label, status, "fuelType") VALUES
 ('pump-03-st-02', 'st-02', 'Pump 03', 'IDLE', 'GAS98')
 ON CONFLICT (id) DO NOTHING;
 
--- Seed Station 3 Pumps
-INSERT INTO fuel_pumps (id, "stationId", label, status, "fuelType") VALUES
-('pump-01-st-03', 'st-03', 'Pump 01', 'IDLE', 'GAS91'),
-('pump-02-st-03', 'st-03', 'Pump 02', 'IDLE', 'GAS95')
-ON CONFLICT (id) DO NOTHING;
 
 
 -- Seed Sales Transactions
@@ -295,9 +270,7 @@ INSERT INTO sales_transactions (id, "stationId", timestamp, "pumpId", "fuelType"
 ('tx-106', 'st-01', '10/06 12:40', 'pump-02-st-01', 'GAS95', 50.00, NULL, NULL, NULL, NULL, 2.33, 116.50, 'FINISHED'),
 ('tx-201', 'st-02', '10/06 09:15', 'pump-01-st-02', 'GAS91', 38.00, NULL, NULL, NULL, NULL, 2.18, 82.84, 'FINISHED'),
 ('tx-202', 'st-02', '10/06 11:45', 'pump-02-st-02', 'GAS95', 62.00, NULL, NULL, NULL, NULL, 2.33, 144.46, 'FINISHED'),
-('tx-203', 'st-02', '10/06 13:20', 'pump-03-st-02', 'GAS98', 55.00, NULL, NULL, NULL, NULL, 2.60, 143.00, 'FINISHED'),
-('tx-301', 'st-03', '10/06 08:30', 'pump-01-st-03', 'GAS91', 42.00, NULL, NULL, NULL, NULL, 2.18, 91.56, 'FINISHED'),
-('tx-302', 'st-03', '10/06 12:10', 'pump-02-st-03', 'GAS95', 75.00, NULL, NULL, NULL, NULL, 2.33, 174.75, 'FINISHED')
+('tx-203', 'st-02', '10/06 13:20', 'pump-03-st-02', 'GAS98', 55.00, NULL, NULL, NULL, NULL, 2.60, 143.00, 'FINISHED')
 ON CONFLICT (id) DO NOTHING;
 
 
@@ -305,14 +278,12 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO audit_logs (id, "stationId", timestamp, "user", role, action, details, "ipAddress") VALUES
 ('aud-001', 'st-01', '10/06 08:00', 'Saeed Alqahtani', 'STATION_ADMIN', 'STATION_ONLINE', 'Abha station hardware communication channel successfully initialized.', '192.168.10.45'),
 ('aud-002', 'st-01', '10/06 08:15', 'Saeed Alqahtani', 'STATION_ADMIN', 'TANK_HEIGHT_CALIBRATION', 'Automatic Tank Gauge (ATG) heights calibrated with high precision (GAS91, GAS95).', '192.168.10.45'),
-('aud-003', 'st-02', '10/06 09:00', 'Yousef Al-Harbi', 'STATION_ADMIN', 'PRICE_SYNC', 'Synchronized local fuel pricing index with central HQ directive.', '192.168.12.112'),
-('aud-004', NULL, '10/06 10:00', 'HQ Administrator', 'SUPER_ADMIN', 'STATION_REGISTER', 'Created and deployed new tenant profile "Red Sea Gate - Jeddah Port" (code RS-JEDD-03).', '10.0.1.5')
+('aud-003', 'st-02', '10/06 09:00', 'Yousef Al-Harbi', 'STATION_ADMIN', 'PRICE_SYNC', 'Synchronized local fuel pricing index with central HQ directive.', '192.168.12.112')
 ON CONFLICT (id) DO NOTHING;
 
 
 -- Seed Supervisor Users
 INSERT INTO onboarded_users (id, station_id, station_name, station_code, username, password_raw, full_name, role) VALUES
 ('usr-seed-01', 'st-01', 'Al Noor - Noor Abha', 'AN-ABHA-01', 'abha.supervisor', 'password123', 'Saeed Alqahtani (Supervisor)', 'supervisor'),
-('usr-seed-02', 'st-02', 'Desert Oasis - Riyadh North', 'DO-RIYD-02', 'riyadh.supervisor', 'password123', 'Yousef Al-Harbi (Supervisor)', 'supervisor'),
-('usr-seed-03', 'st-03', 'Red Sea Gate - Jeddah Port', 'RS-JEDD-03', 'jeddah.supervisor', 'password123', 'Faisal Al-Zahrani (Supervisor)', 'supervisor')
+('usr-seed-02', 'st-02', 'Desert Oasis - Riyadh North', 'DO-RIYD-02', 'riyadh.supervisor', 'password123', 'Yousef Al-Harbi (Supervisor)', 'supervisor')
 ON CONFLICT (username) DO NOTHING;
