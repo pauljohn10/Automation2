@@ -505,7 +505,13 @@ export async function insertTransactionInSupabase(tx: SalesTransaction): Promise
       amount: tx.amount,
       status: tx.status,
       operator: tx.operator || null,
-      customer: tx.customer || null
+      customer: tx.customer || null,
+      paymentMethod: tx.paymentMethod || null,
+      nozzleId: tx.nozzleId || null,
+      shift: tx.shift || null,
+      discount: tx.discount !== undefined ? tx.discount : null,
+      vat: tx.vat !== undefined ? tx.vat : null,
+      netAmount: tx.netAmount !== undefined ? tx.netAmount : null
     });
     
     if (error) {
@@ -945,7 +951,15 @@ export async function syncAllDataBulk(payload: {
         waterLevel: t.waterLevel !== undefined ? Number(t.waterLevel) : null,
         pricePerLitre: Number(t.pricePerLitre),
         amount: Number(t.amount),
-        status: t.status
+        status: t.status,
+        operator: t.operator || null,
+        customer: t.customer || null,
+        paymentMethod: t.paymentMethod || null,
+        nozzleId: t.nozzleId || null,
+        shift: t.shift || null,
+        discount: t.discount !== undefined ? Number(t.discount) : null,
+        vat: t.vat !== undefined ? Number(t.vat) : null,
+        netAmount: t.netAmount !== undefined ? Number(t.netAmount) : null
       }));
       const { error } = await client.from('sales_transactions').upsert(txPayloads);
       if (error) throw new Error(`Transactions sync failed: ${error.message}`);

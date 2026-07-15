@@ -86,6 +86,12 @@ CREATE TABLE sales_transactions (
     status TEXT NOT NULL CHECK (status IN ('STARTED', 'FINISHED')),
     operator TEXT,
     customer TEXT,
+    "paymentMethod" TEXT DEFAULT NULL,
+    "nozzleId" TEXT DEFAULT NULL,
+    "shift" TEXT DEFAULT NULL,
+    "discount" NUMERIC DEFAULT 0.00,
+    "vat" NUMERIC DEFAULT 0.00,
+    "netAmount" NUMERIC DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

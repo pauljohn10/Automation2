@@ -82,7 +82,36 @@ export const MobileDispenserApp: React.FC = () => {
     liters: number;
     operator: string;
     customer?: string;
+    paymentMethod: string;
   } | null>(null);
+
+  // Mobile payment verification states
+  const [paymentVerificationPump, setPaymentVerificationPump] = useState<FuelPump | null>(null);
+  const [selectedMobilePaymentMethod, setSelectedMobilePaymentMethod] = useState<string>('Cash');
+  const [customMobilePaymentMethodName, setCustomMobilePaymentMethodName] = useState<string>('');
+  const [customMobilePaymentMethodsList, setCustomMobilePaymentMethodsList] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('custom_payment_methods');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [mobileShift, setMobileShift] = useState<string>('Shift 1');
+  const [mobileDiscountInput, setMobileDiscountInput] = useState<string>('0');
+  const [mobilePaymentError, setMobilePaymentError] = useState<string | null>(null);
+
+  const handleAddCustomMobilePaymentMethod = (method: string) => {
+    if (!method.trim()) return;
+    const cleanMethod = method.trim();
+    if (!customMobilePaymentMethodsList.includes(cleanMethod) && !['Cash', 'Debit Card', 'Credit Card', 'NoorKhoy', 'Fleet Account'].includes(cleanMethod)) {
+      const newList = [...customMobilePaymentMethodsList, cleanMethod];
+      setCustomMobilePaymentMethodsList(newList);
+      localStorage.setItem('custom_payment_methods', JSON.stringify(newList));
+      setSelectedMobilePaymentMethod(cleanMethod);
+      setCustomMobilePaymentMethodName('');
+    }
+  };
 
   // Auto-calculated helpers
   const getSelectedPumpPrice = (pumpObj: FuelPump, nozzle: 'A' | 'B'): number => {
@@ -126,19 +155,44 @@ export const MobileDispenserApp: React.FC = () => {
     }
   };
 
-  // Complete dispensing action
+  // Complete dispensing action - trigger payment verification sheet
   const handleCompleteDispensing = (pumpObj: FuelPump) => {
     setDispenseError(null);
+    setPaymentVerificationPump(pumpObj);
+    setSelectedMobilePaymentMethod('Cash');
+    setMobileShift('Shift 1');
+    setMobileDiscountInput('0');
+    setMobilePaymentError(null);
+  };
 
+  const handleVerifyMobilePayment = () => {
+    if (!paymentVerificationPump) return;
+    setMobilePaymentError(null);
+
+    const pumpObj = paymentVerificationPump;
     const grade = pumpObj.activeFuelGrade || pumpObj.fuelType || 'GAS91';
     const price = activeStation?.fuelPricing[grade] || 2.18;
     const vol = pumpObj.volumeThisSession || 0;
     const amt = vol * price;
-    const attendant = session.name;
+    const attendant = session.name || 'Attendant';
+    
+    const discountVal = parseFloat(mobileDiscountInput) || 0;
+    const finalAmt = Math.max(0, amt - discountVal);
+    
+    const vatVal = finalAmt - (finalAmt / 1.15);
+    const netAmt = finalAmt / 1.15;
 
-    const res = confirmDispenseTransaction(pumpObj.id, attendant, customerName || undefined);
+    const res = confirmDispenseTransaction(pumpObj.id, selectedMobilePaymentMethod, {
+      operator: attendant,
+      customer: customerName || undefined,
+      shift: mobileShift,
+      nozzleId: pumpObj.label.includes('Pump') ? pumpObj.label.slice(-2) : '01',
+      discount: discountVal,
+      vat: vatVal,
+      netAmount: netAmt
+    });
+
     if (res.success) {
-      // Build receipt
       setCompletedReceipt({
         txNumber: `TX-${Date.now().toString().slice(-8)}`,
         timestamp: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
@@ -146,17 +200,19 @@ export const MobileDispenserApp: React.FC = () => {
         pumpLabel: pumpObj.label,
         fuelType: grade,
         price: price,
-        amount: amt,
+        amount: finalAmt,
         liters: vol,
         operator: attendant,
-        customer: customerName || undefined
+        customer: customerName || undefined,
+        paymentMethod: selectedMobilePaymentMethod
       });
       // Clear inputs
+      setPaymentVerificationPump(null);
       setSelectedPump(null);
       setAmountSAR('50');
       setCustomerName('');
     } else {
-      setDispenseError(res.message);
+      setMobilePaymentError(res.message);
     }
   };
 
@@ -526,6 +582,11 @@ export const MobileDispenserApp: React.FC = () => {
                               }`}>
                                 {tx.fuelType}
                               </span>
+                              {tx.paymentMethod && (
+                                <span className="inline-block text-[8px] font-black px-1.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase font-mono">
+                                  {tx.paymentMethod}
+                                </span>
+                              )}
                               <span className="truncate">{tx.pumpId === 'DELIVERY_BAY' ? 'Replenish' : `Pump ${tx.pumpId.slice(-2)}`}</span>
                               <span>•</span>
                               <span className="truncate">{tx.operator ? tx.operator.split('@')[0] : 'Attendant'}</span>
@@ -769,6 +830,10 @@ export const MobileDispenserApp: React.FC = () => {
                 <span>SAR {viewedTx.pricePerLitre ? viewedTx.pricePerLitre.toFixed(2) : '2.18'}</span>
               </div>
               <div className="flex justify-between">
+                <span>PAYMENT METHOD:</span>
+                <span className="font-bold text-emerald-400">{viewedTx.paymentMethod || 'Cash'}</span>
+              </div>
+              <div className="flex justify-between">
                 <span>ATTENDANT:</span>
                 <span className="font-bold text-indigo-300">{viewedTx.operator ? viewedTx.operator.split('@')[0] : 'Attendant'}</span>
               </div>
@@ -849,6 +914,10 @@ export const MobileDispenserApp: React.FC = () => {
                 <div className="flex justify-between">
                   <span>PRICE PER L:</span>
                   <span>SAR {completedReceipt.price.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>PAYMENT METHOD:</span>
+                  <span className="font-bold text-emerald-400">{completedReceipt.paymentMethod}</span>
                 </div>
                 {completedReceipt.customer && (
                   <div className="flex justify-between">
@@ -937,6 +1006,145 @@ export const MobileDispenserApp: React.FC = () => {
           </div>
         </div>
       )}
+      {/* =========================================================================
+         MODAL/SHEET INTERFACE: MOBILE PAYMENT VERIFICATION
+         ========================================================================= */}
+      {paymentVerificationPump && (() => {
+        const grade = paymentVerificationPump.activeFuelGrade || paymentVerificationPump.fuelType || 'GAS91';
+        const price = activeStation?.fuelPricing[grade] || 2.18;
+        const vol = paymentVerificationPump.volumeThisSession || 0;
+        const amt = vol * price;
+        
+        const discVal = parseFloat(mobileDiscountInput) || 0;
+        const finalAmt = Math.max(0, amt - discVal);
+        
+        const paymentMethodsList = ['Cash', 'Debit Card', 'Credit Card', 'NoorKhoy', 'Fleet Account', ...customMobilePaymentMethodsList];
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-xs p-4 animate-fade-in">
+            <div className="bg-[#111827] border border-slate-855 rounded-t-3xl max-w-sm w-full p-5 space-y-4 text-left relative animate-slide-up">
+              
+              <button
+                onClick={() => setPaymentVerificationPump(null)}
+                className="absolute top-4 right-4 p-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-full text-slate-505 hover:text-white transition-colors cursor-pointer select-none"
+              >
+                <X size={14} />
+              </button>
+
+              <h3 className="text-sm font-black text-white uppercase tracking-wider border-b border-slate-800 pb-2">
+                Verify Payment & Close Pump
+              </h3>
+
+              {/* Transaction Summary */}
+              <div className="bg-[#090d16] rounded-xl p-3 border border-slate-850 space-y-1.5 font-mono text-[10px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>PUMP NOZZLE:</span>
+                  <span className="text-white font-bold">{paymentVerificationPump.label} ({grade})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>DISPENSED VOLUME:</span>
+                  <span className="text-white font-bold">{vol.toFixed(2)} L</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>GROSS AMOUNT:</span>
+                  <span className="text-[#8c7dfc] font-bold">SAR {amt.toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* Payment selector */}
+              <div className="space-y-1.5">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">1. Select Payment Method</span>
+                <div className="grid grid-cols-2 gap-2 max-h-24 overflow-y-auto pr-1">
+                  {paymentMethodsList.map(method => (
+                    <button
+                      key={method}
+                      onClick={() => setSelectedMobilePaymentMethod(method)}
+                      className={`py-2 rounded-xl border text-[10px] font-bold transition-all cursor-pointer select-none ${
+                        selectedMobilePaymentMethod === method
+                          ? 'bg-[#1e1b4b] text-[#8c7dfc] border-[#8c7dfc] shadow-md'
+                          : 'bg-[#090d16] text-slate-550 border-slate-800 hover:text-slate-300'
+                      }`}
+                    >
+                      {method}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Add custom payment method input */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Custom method name..."
+                  value={customMobilePaymentMethodName}
+                  onChange={(e) => setCustomMobilePaymentMethodName(e.target.value)}
+                  className="flex-1 bg-[#090d16] text-white border border-slate-800 rounded-lg px-2.5 py-1.5 text-[10px] focus:outline-none focus:border-[#8c7dfc]"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAddCustomMobilePaymentMethod(customMobilePaymentMethodName)}
+                  className="bg-[#6c5dd3] hover:bg-[#5c4eb3] text-white font-black text-[9px] uppercase px-2.5 rounded-lg tracking-wider cursor-pointer border-none"
+                >
+                  Add
+                </button>
+              </div>
+
+              {/* Shift and discount */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Shift</span>
+                  <select
+                    value={mobileShift}
+                    onChange={(e) => setMobileShift(e.target.value)}
+                    className="w-full bg-[#090d16] text-white border border-slate-800 rounded-lg p-1.5 text-[10px] outline-none"
+                  >
+                    <option value="Shift 1">Shift 1 (Day)</option>
+                    <option value="Shift 2">Shift 2 (Evening)</option>
+                    <option value="Shift 3">Shift 3 (Night)</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Discount (SAR)</span>
+                  <input
+                    type="number"
+                    value={mobileDiscountInput}
+                    onChange={(e) => setMobileDiscountInput(e.target.value)}
+                    className="w-full bg-[#090d16] text-white border border-slate-800 rounded-lg p-1.5 text-[10px] font-mono outline-none"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              {/* Total Calculation */}
+              <div className="bg-[#090d16] rounded-xl p-2.5 flex justify-between items-center text-[10px] font-semibold text-slate-500 border border-slate-850">
+                <div className="font-mono">
+                  <span>Net Amount: SAR {(finalAmt / 1.15).toFixed(2)}</span>
+                  <span className="block">VAT (15%): SAR {(finalAmt - (finalAmt / 1.15)).toFixed(2)}</span>
+                </div>
+                <div className="text-right">
+                  <span>FINAL TOTAL:</span>
+                  <strong className="block text-emerald-400 text-sm font-black font-mono mt-0.5">
+                    SAR {finalAmt.toFixed(2)}
+                  </strong>
+                </div>
+              </div>
+
+              {mobilePaymentError && (
+                <div className="text-[10px] text-red-400 font-bold bg-red-950/20 border border-red-900/30 p-2 rounded-lg">
+                  {mobilePaymentError}
+                </div>
+              )}
+
+              <button
+                onClick={handleVerifyMobilePayment}
+                className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wider border-none cursor-pointer select-none text-center shadow-md transition-colors animate-pulse"
+              >
+                Verify & Log Transaction
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

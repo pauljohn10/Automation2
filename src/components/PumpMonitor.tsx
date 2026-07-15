@@ -31,6 +31,50 @@ export const PumpMonitor: React.FC = () => {
   const [amountInput, setAmountInput] = useState<string>('50');
   const [modalError, setModalError] = useState<string | null>(null);
 
+  // Payment verification state
+  const [paymentPumpId, setPaymentPumpId] = useState<string | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('Cash');
+  const [customPaymentMethodName, setCustomPaymentMethodName] = useState<string>('');
+  const [customPaymentMethodsList, setCustomPaymentMethodsList] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('custom_payment_methods');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [shiftInput, setShiftInput] = useState<string>('Shift 1');
+  const [customerInput, setCustomerInput] = useState<string>('');
+  const [discountInput, setDiscountInput] = useState<string>('0');
+  const [closedPaymentPumpIds, setClosedPaymentPumpIds] = useState<string[]>([]);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+
+  // Automatically open payment verification dialog when a pump changes to COMPLETED
+  React.useEffect(() => {
+    const completedPump = stationPumps.find(p => p.status === 'COMPLETED' && !closedPaymentPumpIds.includes(p.id));
+    if (completedPump && paymentPumpId !== completedPump.id) {
+      setPaymentPumpId(completedPump.id);
+      // Reset modal inputs
+      setSelectedPaymentMethod('Cash');
+      setShiftInput('Shift 1');
+      setCustomerInput('');
+      setDiscountInput('0');
+      setPaymentError(null);
+    }
+  }, [stationPumps, closedPaymentPumpIds, paymentPumpId]);
+
+  const handleAddCustomPaymentMethod = () => {
+    if (!customPaymentMethodName.trim()) return;
+    const cleanMethod = customPaymentMethodName.trim();
+    if (!customPaymentMethodsList.includes(cleanMethod) && !['Cash', 'Debit Card', 'Credit Card', 'NoorKhoy', 'Fleet Account'].includes(cleanMethod)) {
+      const newList = [...customPaymentMethodsList, cleanMethod];
+      setCustomPaymentMethodsList(newList);
+      localStorage.setItem('custom_payment_methods', JSON.stringify(newList));
+      setSelectedPaymentMethod(cleanMethod);
+      setCustomPaymentMethodName('');
+    }
+  };
+
   // Initialize selected pump if empty
   React.useEffect(() => {
     if (stationPumps.length > 0 && !selectedPumpId) {
@@ -130,12 +174,12 @@ export const PumpMonitor: React.FC = () => {
         setSimResults({ status: 'error', message: res.message });
       }
     } else if (status === 'COMPLETED') {
-      const res = confirmDispenseTransaction(nozzleId);
-      if (res.success) {
-        setSimResults({ status: 'success', message: res.message });
-      } else {
-        setSimResults({ status: 'error', message: res.message });
-      }
+      setPaymentPumpId(nozzleId);
+      setSelectedPaymentMethod('Cash');
+      setShiftInput('Shift 1');
+      setCustomerInput('');
+      setDiscountInput('0');
+      setPaymentError(null);
     }
   };
 
@@ -346,6 +390,10 @@ export const PumpMonitor: React.FC = () => {
                         <div className="pt-1.5 border-t border-dashed border-emerald-200">
                           <button 
                             type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleNozzleClick(nozzle.id, nozzle.fuelType || 'GAS91', nozzle.status);
+                            }}
                             className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black text-[9px] uppercase py-1 px-1.5 rounded-md tracking-wider flex items-center justify-center gap-1 shadow-xs transition-colors"
                           >
                             <Sparkles size={10} className="fill-white" />
@@ -392,6 +440,7 @@ export const PumpMonitor: React.FC = () => {
                 <th className="p-3">PUMP CODE</th>
                 <th className="p-3">NOZZLE NO.</th>
                 <th className="p-3">PRODUCT</th>
+                <th className="p-3">PAYMENT</th>
                 <th className="p-3 text-right">PPV (SAR/L)</th>
                 <th className="p-3 text-right">VOLUME (L)</th>
                 <th className="p-3 text-right">AMOUNT (SAR)</th>
@@ -425,13 +474,24 @@ export const PumpMonitor: React.FC = () => {
                         {tx.timestamp}
                       </td>
                       <td className="p-3 font-semibold text-slate-800">
-                        DISPENER D{pumpCode}
+                        DISPENSER D{pumpCode}
                       </td>
                       <td className="p-3 font-bold text-slate-700">
                         {nozzleNo}
                       </td>
                       <td className={`p-3 font-extrabold ${getFuelTextColor(tx.fuelType)}`}>
                         {tx.fuelType}
+                      </td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                          tx.paymentMethod === 'Cash' ? 'bg-emerald-100 text-emerald-800' :
+                          tx.paymentMethod === 'Debit Card' || tx.paymentMethod === 'Credit Card' ? 'bg-blue-100 text-blue-800' :
+                          tx.paymentMethod === 'NoorKhoy' ? 'bg-purple-100 text-purple-800' :
+                          tx.paymentMethod === 'Fleet Account' ? 'bg-amber-100 text-amber-800' :
+                          'bg-slate-105 text-slate-700'
+                        }`}>
+                          {tx.paymentMethod || 'UNPAID'}
+                        </span>
                       </td>
                       <td className="p-3 text-right text-slate-600 font-semibold">
                         {tx.pricePerLitre.toFixed(2)}
@@ -784,6 +844,239 @@ export const PumpMonitor: React.FC = () => {
           </div>
         </div>
       )}
+      {/* PAYMENT VERIFICATION MODAL */}
+      {paymentPumpId && (() => {
+        const pObj = stationPumps.find(p => p.id === paymentPumpId);
+        if (!pObj) return null;
+        const grade = pObj.activeFuelGrade || 'GAS91';
+        const vol = pObj.volumeThisSession || 0;
+        const price = activeStation?.fuelPricing[grade] || 2.18;
+        const grossAmt = vol * price;
+        
+        const discVal = parseFloat(discountInput) || 0;
+        const finalAmt = Math.max(0, grossAmt - discVal);
+        
+        // KSA pump prices are VAT inclusive (15%). VAT is A - (A / 1.15)
+        const vatVal = finalAmt - (finalAmt / 1.15);
+        const netAmt = finalAmt / 1.15;
+        
+        const paymentMethodsList = ['Cash', 'Debit Card', 'Credit Card', 'NoorKhoy', 'Fleet Account', ...customPaymentMethodsList];
+
+        const handleConfirmPayment = () => {
+          if (!selectedPaymentMethod) {
+            setPaymentError('Please select a payment method.');
+            return;
+          }
+          const res = confirmDispenseTransaction(paymentPumpId, selectedPaymentMethod, {
+            operator: session.name || 'Station Attendant',
+            customer: customerInput.trim() || undefined,
+            shift: shiftInput,
+            nozzleId: pObj.label.includes('Pump') ? pObj.label.slice(-2) : '01',
+            discount: discVal,
+            vat: vatVal,
+            netAmount: netAmt
+          });
+          if (res.success) {
+            setPaymentPumpId(null);
+            setClosedPaymentPumpIds(prev => prev.filter(id => id !== paymentPumpId));
+            setSimResults({ status: 'success', message: res.message });
+          } else {
+            setPaymentError(res.message);
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in text-left">
+            <div className="absolute inset-0" onClick={() => {
+              setClosedPaymentPumpIds(prev => [...prev, paymentPumpId]);
+              setPaymentPumpId(null);
+            }} />
+
+            <div className="relative w-full max-w-xl bg-white rounded-xl shadow-2xl p-6 z-10 overflow-hidden border border-slate-200">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-150">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <h3 className="font-sans font-black text-slate-800 text-sm uppercase tracking-wider">
+                    Payment Verification Required
+                  </h3>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setClosedPaymentPumpIds(prev => [...prev, paymentPumpId]);
+                    setPaymentPumpId(null);
+                  }}
+                  className="p-1 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Fueling Transaction Details */}
+              <div className="mt-4 grid grid-cols-2 gap-4 bg-slate-50 border border-slate-200/60 rounded-lg p-3 text-xs">
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-slate-450 font-semibold uppercase">Location:</span>
+                    <span className="font-black text-slate-700">{pObj.label}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-455 font-semibold uppercase">Fuel Product:</span>
+                    <span className={`font-mono font-black ${getFuelTextColor(grade)}`}>{grade}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-450 font-semibold uppercase">Unit Price:</span>
+                    <span className="font-mono font-bold text-slate-700">SAR {price.toFixed(2)}/L</span>
+                  </div>
+                </div>
+                <div className="space-y-1 border-l border-slate-200 pl-4">
+                  <div className="flex justify-between">
+                    <span className="text-slate-450 font-semibold uppercase">Liters Sold:</span>
+                    <span className="font-mono font-black text-slate-800">{vol.toFixed(2)} L</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-450 font-semibold uppercase">Gross Total:</span>
+                    <span className="font-mono font-black text-[#6c5dd3]">SAR {grossAmt.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Method Selector Grid */}
+              <div className="mt-4 space-y-2">
+                <label className="text-[10px] font-black text-slate-455 uppercase tracking-wider block">
+                  Select Payment Method
+                </label>
+                <div className="grid grid-cols-3 gap-2.5 max-h-36 overflow-y-auto p-0.5">
+                  {paymentMethodsList.map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setSelectedPaymentMethod(method)}
+                      className={`p-2 rounded-lg border text-left flex flex-col justify-between h-14 transition-all cursor-pointer ${
+                        selectedPaymentMethod === method
+                          ? 'bg-indigo-50 border-indigo-500 shadow-xs ring-1 ring-indigo-500'
+                          : 'bg-white text-slate-750 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight block truncate w-full">
+                        {method}
+                      </span>
+                      <span className="text-[8px] text-slate-400 block font-semibold leading-none">
+                        Tap to select
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Add Custom Payment Method */}
+              <div className="mt-3 flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Add other payment method (e.g. Apple Pay)..."
+                  value={customPaymentMethodName}
+                  onChange={(e) => setCustomPaymentMethodName(e.target.value)}
+                  className="flex-1 text-xs font-semibold bg-slate-55 border border-slate-255 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500/20"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCustomPaymentMethod}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[10px] uppercase py-1.5 px-3 rounded-lg tracking-wider transition-colors cursor-pointer border-none"
+                >
+                  Add Method
+                </button>
+              </div>
+
+              {/* Optional Inputs */}
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-450 uppercase tracking-wider block">
+                    Shift / Crew
+                  </label>
+                  <select
+                    value={shiftInput}
+                    onChange={(e) => setShiftInput(e.target.value)}
+                    className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg p-2 focus:outline-none"
+                  >
+                    <option value="Shift 1">Shift 1 (Morning)</option>
+                    <option value="Shift 2">Shift 2 (Evening)</option>
+                    <option value="Shift 3">Shift 3 (Night)</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-450 uppercase tracking-wider block">
+                    Customer (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Plate / ID"
+                    value={customerInput}
+                    onChange={(e) => setCustomerInput(e.target.value)}
+                    className="w-full text-xs font-semibold bg-white border border-slate-200 rounded-lg p-2 focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-455 uppercase tracking-wider block">
+                    Discount (SAR)
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    max={grossAmt}
+                    placeholder="0.00"
+                    value={discountInput}
+                    onChange={(e) => setDiscountInput(e.target.value)}
+                    className="w-full text-xs font-bold font-mono bg-white border border-slate-200 rounded-lg p-2 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Calculation Summary Table */}
+              <div className="mt-4 border-t border-slate-100 pt-3 flex justify-between items-center text-xs">
+                <div className="space-y-0.5 font-mono text-slate-505 text-[10px]">
+                  <div>Net Amount: <span className="font-bold text-slate-700">SAR {netAmt.toFixed(2)}</span></div>
+                  <div>VAT (15%): <span className="font-bold text-slate-700">SAR {vatVal.toFixed(2)}</span></div>
+                  {discVal > 0 && <div className="text-rose-500 font-bold">Discount: -SAR {discVal.toFixed(2)}</div>}
+                </div>
+                <div className="text-right">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Grand Total Due</span>
+                  <span className="text-xl font-mono font-black text-emerald-600">
+                    SAR {finalAmt.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {paymentError && (
+                <div className="mt-3 p-2 bg-rose-55 border border-rose-200 rounded-lg text-xs text-rose-800 font-semibold">
+                  {paymentError}
+                </div>
+              )}
+
+              {/* Modal Actions */}
+              <div className="mt-4 flex gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClosedPaymentPumpIds(prev => [...prev, paymentPumpId]);
+                    setPaymentPumpId(null);
+                  }}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs uppercase py-2.5 rounded-lg transition-all cursor-pointer border-none"
+                >
+                  Pay Later / Suspend
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmPayment}
+                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs uppercase py-2.5 rounded-lg transition-all shadow-xs cursor-pointer border-none"
+                >
+                  Confirm Payment
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

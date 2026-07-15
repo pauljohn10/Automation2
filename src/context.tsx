@@ -48,7 +48,19 @@ interface FuelSystemContextType {
   resetTankWater: (tankId: string) => void;
   triggerFuelDelivery: (tankId: string, volume: number) => { success: boolean; message: string };
   dispenseFuel: (pumpId: string, grade: FuelGrade, volume: number) => { success: boolean; message: string };
-  confirmDispenseTransaction: (pumpId: string, operator?: string, customer?: string) => { success: boolean; message: string };
+  confirmDispenseTransaction: (
+    pumpId: string, 
+    paymentMethod: string, 
+    options?: { 
+      operator?: string; 
+      customer?: string; 
+      shift?: string; 
+      nozzleId?: string; 
+      discount?: number; 
+      vat?: number; 
+      netAmount?: number; 
+    }
+  ) => { success: boolean; message: string };
   addCustomAuditLog: (action: string, details: string, stationId?: string) => void;
   clearAllData: () => void;
   refreshAllFromSupabase: () => Promise<{ success: boolean; message: string }>;
@@ -614,34 +626,13 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setPumps(prevPumps => prevPumps.map(p => p.id === pumpId ? completedPumpState : p));
         upsertPumpInSupabase(completedPumpState);
 
-        // --- AUTOMATICALLY RECORD THE COMPLETED sales_transactions ROW ---
+        // --- AUTOMATICALLY UPDATE STATE BUT DO NOT SAVE FINISHED TRANSACTION YET ---
         const finalBill = volume * unitPrice;
         const heightAfter = Math.round((Math.max(0, supplyTank.currentLevel - volume) / supplyTank.capacity) * 1000);
-        const txEndId = `tx-sale-${Date.now()}`;
         
-        const endTx: SalesTransaction = {
-          id: txEndId,
-          stationId: pump.stationId,
-          timestamp: timestamp,
-          pumpId: pump.id,
-          fuelType: grade,
-          volume: volume,
-          heightBefore: heightBefore,
-          heightAfter: heightAfter,
-          temperature: supplyTank.temperature,
-          waterLevel: supplyTank.waterLevel,
-          pricePerLitre: unitPrice,
-          amount: finalBill,
-          status: 'FINISHED',
-          operator: session.name || 'Station Operator'
-        };
-
-        setTransactions(prev => [endTx, ...prev]);
-        insertTransactionInSupabase(endTx);
-
         addCustomAuditLog(
-          'FUEL_DISPENSE_AUTO_DEDUCTED',
-          `Dispensing completed for ${volume.toFixed(2)}L of ${grade} at ${pump.label}. Sequentially deducted: ${deductionLogs.join(' and ')}. Transaction #${txEndId} automatically recorded.`,
+          'FUEL_DISPENSE_COMPLETED',
+          `Dispensing completed for ${volume.toFixed(2)}L of ${grade} at ${pump.label}. Sequentially deducted: ${deductionLogs.join(' and ')}. Awaiting payment verification.`,
           pump.stationId
         );
       } else {
@@ -659,7 +650,19 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   };
 
-  const confirmDispenseTransaction = (pumpId: string, operator?: string, customer?: string) => {
+  const confirmDispenseTransaction = (
+    pumpId: string, 
+    paymentMethod: string, 
+    options?: { 
+      operator?: string; 
+      customer?: string; 
+      shift?: string; 
+      nozzleId?: string; 
+      discount?: number; 
+      vat?: number; 
+      netAmount?: number; 
+    }
+  ) => {
     const pump = pumps.find(p => p.id === pumpId);
     if (!pump) return { success: false, message: 'Pump setup error' };
     if (pump.status !== 'COMPLETED') {
@@ -672,14 +675,53 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const unitPrice = actualStation?.fuelPricing[grade] || 2.18;
     const finalBill = volume * unitPrice;
     
-    // 2. Save central AuditLog
+    // 1. Calculate values for the transaction
+    const supplyTank = tanks.find(t => t.stationId === pump.stationId && t.fuelType === grade);
+    const heightBefore = supplyTank ? Math.round((supplyTank.currentLevel / supplyTank.capacity) * 1000) : 500;
+    const heightAfter = supplyTank ? Math.round((Math.max(0, supplyTank.currentLevel - volume) / supplyTank.capacity) * 1000) : 480;
+    const timestamp = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) + ' ' + new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+    const txEndId = `tx-sale-${Date.now()}`;
+
+    const discountVal = options?.discount !== undefined ? options.discount : 0;
+    const vatVal = options?.vat !== undefined ? options.vat : (finalBill * 0.15);
+    const netAmountVal = options?.netAmount !== undefined ? options.netAmount : (finalBill - vatVal);
+
+    const endTx: SalesTransaction = {
+      id: txEndId,
+      stationId: pump.stationId,
+      timestamp: timestamp,
+      pumpId: pump.id,
+      fuelType: grade,
+      volume: volume,
+      heightBefore: heightBefore,
+      heightAfter: heightAfter,
+      temperature: supplyTank?.temperature || 34.0,
+      waterLevel: supplyTank?.waterLevel || 0.0,
+      pricePerLitre: unitPrice,
+      amount: finalBill - discountVal,
+      status: 'FINISHED',
+      operator: options?.operator || session.name || 'Station Attendant',
+      customer: options?.customer || undefined,
+      paymentMethod: paymentMethod,
+      nozzleId: options?.nozzleId || (pump.label.includes('Pump') ? pump.label.slice(-2) : '01'),
+      shift: options?.shift || 'Shift 1',
+      discount: discountVal,
+      vat: vatVal,
+      netAmount: netAmountVal
+    };
+
+    // 2. Save transaction locally and in Supabase
+    setTransactions(prev => [endTx, ...prev]);
+    insertTransactionInSupabase(endTx);
+
+    // 3. Save central AuditLog
     addCustomAuditLog(
       'FUEL_DISPENSE',
-      `Dispensed and confirmed transaction for ${volume.toFixed(2)}L of ${grade} at ${pump.label}. Invoice value: SAR ${finalBill.toFixed(2)}.`,
+      `Dispensed and confirmed transaction for ${volume.toFixed(2)}L of ${grade} at ${pump.label} via ${paymentMethod}. Invoice value: SAR ${(finalBill - discountVal).toFixed(2)}.`,
       pump.stationId
     );
 
-    // 3. Reset pump status to IDLE
+    // 4. Reset pump status to IDLE
     const idlePumpState = {
       ...pump,
       status: 'IDLE' as const,
@@ -691,7 +733,7 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     return { 
       success: true, 
-      message: `Transaction verified for ${pump.label}! Total: SAR ${finalBill.toFixed(2)}.` 
+      message: `Transaction verified for ${pump.label} via ${paymentMethod}! Total: SAR ${(finalBill - discountVal).toFixed(2)}.` 
     };
   };
 

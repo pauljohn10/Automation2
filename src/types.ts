@@ -58,6 +58,12 @@ export interface SalesTransaction {
   status: 'STARTED' | 'FINISHED';
   operator?: string;
   customer?: string;
+  paymentMethod?: string;
+  nozzleId?: string;
+  shift?: string;
+  discount?: number;
+  vat?: number;
+  netAmount?: number;
 }
 
 export interface AuditLog {
