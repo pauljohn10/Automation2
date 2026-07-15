@@ -203,8 +203,8 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         mergedOnboarded = dbOnboarded || [];
         mergedProfiles = dbProfiles || [];
       } else {
-        // DB is empty. Check if we have local stations to seed.
-        if (stations.length > 0) {
+        // Only seed if fetch was successful (dbStations is NOT null) and local memory contains stations
+        if (dbStations !== null && stations.length > 0) {
           console.log('Supabase tables are empty, but local state has data. Seeding database with current local state...');
           mergedStations = stations;
           mergedTanks = tanks;
@@ -229,14 +229,18 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             console.warn('Supabase bulk seed warning:', syncRes.message);
           }
         } else {
-          console.log('Both database and local state are empty. No seeding required.');
-          mergedStations = [];
-          mergedTanks = [];
-          mergedPumps = [];
-          mergedTransactions = [];
-          mergedAudits = [];
-          mergedOnboarded = [];
-          mergedProfiles = dbProfiles || [];
+          if (dbStations === null) {
+            console.warn('Database fetch failed. Aborting database auto-seed to prevent offline data overwrites.');
+          } else {
+            console.log('Both database and local state are empty. No seeding required.');
+          }
+          mergedStations = stations;
+          mergedTanks = tanks;
+          mergedPumps = pumps;
+          mergedTransactions = transactions;
+          mergedAudits = auditLogs;
+          mergedOnboarded = localOnboardedUsers;
+          mergedProfiles = localUserProfiles;
         }
       }
 
