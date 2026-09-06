@@ -203,19 +203,25 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         mergedOnboarded = dbOnboarded || [];
         mergedProfiles = dbProfiles || [];
       } else {
-        // Only seed if fetch was successful (dbStations is NOT null) and local memory contains stations
-        if (dbStations !== null && stations.length > 0) {
-          console.log('Supabase tables are empty, but local state has data. Seeding database with current local state...');
-          mergedStations = stations;
-          mergedTanks = tanks;
-          mergedPumps = pumps;
-          mergedTransactions = transactions;
-          mergedAudits = auditLogs;
-          mergedOnboarded = localOnboardedUsers;
-          mergedProfiles = localUserProfiles;
+        // Database is empty (new database). Use baseline stations to populate UI and auto-seed Supabase
+        const baselineStations = (stations && stations.length > 0) ? stations : INITIAL_STATIONS;
+        const baselineTanks = (tanks && tanks.length > 0) ? tanks : INITIAL_TANKS;
+        const baselinePumps = (pumps && pumps.length > 0) ? pumps : INITIAL_PUMPS;
+        const baselineTx = (transactions && transactions.length > 0) ? transactions : INITIAL_TRANSACTIONS;
+        const baselineAudits = (auditLogs && auditLogs.length > 0) ? auditLogs : INITIAL_AUDIT_LOGS;
 
-          // Perform a full bulk sync across all records to seed the DB
-          const syncRes = await syncAllDataBulk({
+        mergedStations = baselineStations;
+        mergedTanks = baselineTanks;
+        mergedPumps = baselinePumps;
+        mergedTransactions = baselineTx;
+        mergedAudits = baselineAudits;
+        mergedOnboarded = localOnboardedUsers;
+        mergedProfiles = localUserProfiles;
+
+        // Auto-seed baseline into Supabase so tables are populated
+        if (dbStations !== null && baselineStations.length > 0) {
+          console.log('Supabase tables are empty. Seeding database with baseline stations...');
+          syncAllDataBulk({
             stations: mergedStations,
             tanks: mergedTanks,
             pumps: mergedPumps,
@@ -223,24 +229,15 @@ export const FuelSystemProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             audits: mergedAudits,
             onboardedUsers: mergedOnboarded,
             userProfiles: mergedProfiles
+          }).then(syncRes => {
+            if (syncRes.success) {
+              console.log('Successfully seeded database with baseline stations.');
+            } else {
+              console.warn('Supabase bulk seed warning:', syncRes.message);
+            }
+          }).catch(seedErr => {
+            console.warn('Supabase bulk seed error:', seedErr);
           });
-
-          if (!syncRes.success) {
-            console.warn('Supabase bulk seed warning:', syncRes.message);
-          }
-        } else {
-          if (dbStations === null) {
-            console.warn('Database fetch failed. Aborting database auto-seed to prevent offline data overwrites.');
-          } else {
-            console.log('Both database and local state are empty. No seeding required.');
-          }
-          mergedStations = stations;
-          mergedTanks = tanks;
-          mergedPumps = pumps;
-          mergedTransactions = transactions;
-          mergedAudits = auditLogs;
-          mergedOnboarded = localOnboardedUsers;
-          mergedProfiles = localUserProfiles;
         }
       }
 

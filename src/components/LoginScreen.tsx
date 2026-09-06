@@ -599,13 +599,13 @@ export const LoginScreen: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    setInputUrl('http://localhost:54321');
-                    setInputKey('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlbXAiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTU2MTM3MTE0MSwiZXhwIjoxOTA2OTQ3MTQxfQ.standard-anon-key');
+                    setInputUrl('https://gxoumwzddutjdacmotrw.supabase.co');
+                    setInputKey('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4b3Vtd3pkZHV0amRhY21vdHJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2ODE5MjMsImV4cCI6MjEwNDI1NzkyM30.VB7v8QxLvzkJR4Vyaup6w_XcDwe-AndujBVotHikOWo');
                   }}
                   className="bg-slate-800/80 hover:bg-slate-700 text-indigo-300 border border-slate-700 px-2 py-0.5 rounded text-[9px] font-bold transition-all flex items-center gap-1 cursor-pointer"
                 >
                   <Server size={9} />
-                  Localhost Preset (54321)
+                  Cloud Database (gxoumwzddutjdacmotrw)
                 </button>
               </div>
 

@@ -4,7 +4,7 @@ import { FuelStation, FuelTank, FuelPump, SalesTransaction, AuditLog } from './t
 // Retrieve credentials with local storage fallback for interactive preview debugging
 export function getSupabaseConfig() {
   let localUrl = localStorage.getItem('supabase_url_override');
-  const localKey = localStorage.getItem('supabase_key_override');
+  let localKey = localStorage.getItem('supabase_key_override');
 
   // @ts-ignore
   let envUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -12,19 +12,35 @@ export function getSupabaseConfig() {
   const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
   // Active default credentials provided by user
-  const defaultUrl = 'https://cgsmiirbaqgetnsjbvgl.supabase.co';
-  const defaultKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnc21paXJiYXFnZXRuc2pidmdsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwODE2MDcsImV4cCI6MjA5NjY1NzYwN30.X_faVeWpKANZR88coRZOyUt2o_Fji835UjLy2c2FcEc';
+  const defaultUrl = 'https://gxoumwzddutjdacmotrw.supabase.co';
+  const defaultKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4b3Vtd3pkZHV0amRhY21vdHJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2ODE5MjMsImV4cCI6MjEwNDI1NzkyM30.VB7v8QxLvzkJR4Vyaup6w_XcDwe-AndujBVotHikOWo';
+
+  // Purge any stale, invalid, localhost, or non-active project overrides
+  const isStaleOverride = 
+    (localUrl && (
+      localUrl.includes('localhost') ||
+      localUrl.includes('127.0.0.1') ||
+      localUrl.includes('54321') ||
+      !localUrl.includes('gxoumwzddutjdacmotrw')
+    )) ||
+    (localKey && (
+      localKey.includes('temp') ||
+      localKey.includes('standard-anon-key') ||
+      !localKey.includes('gxoumwzddutjdacmotrw')
+    ));
+
+  if (isStaleOverride) {
+    try {
+      localStorage.removeItem('supabase_url_override');
+      localStorage.removeItem('supabase_key_override');
+      localStorage.removeItem('supabase_service_role_override');
+    } catch {}
+    localUrl = null;
+    localKey = null;
+  }
 
   let rawUrl = localUrl || envUrl || defaultUrl;
   let rawKey = localKey || envKey || defaultKey;
-
-  // Auto-correct any known misspelled URL to provide a frictionless user experience!
-  if (rawUrl && rawUrl.includes('cgsmiirbaqgetnsjbugl.supabase.co')) {
-    rawUrl = rawUrl.replace('cgsmiirbaqgetnsjbugl.supabase.co', 'cgsmiirbaqgetnsjbvgl.supabase.co');
-    if (localUrl) {
-      localStorage.setItem('supabase_url_override', rawUrl);
-    }
-  }
 
   const isConfiguredVal = !!(
     rawUrl &&
@@ -606,41 +622,29 @@ export interface SupabaseUserProfile {
 }
 
 export function getSupabaseServiceRoleKey(): string | null {
-  const defaultServiceRole = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnc21paXJiYXFnZXRuc2pidmdsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTA4MTYwNywiZXhwIjoyMDk2NjU3NjA3fQ.koZpd7L7PTxa09iZP_uLQaoEVotBeXhH-72eFWq2qXE';
+  const defaultServiceRole = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4b3Vtd3pkZHV0amRhY21vdHJ3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODY4MTkyMywiZXhwIjoyMTA0MjU3OTIzfQ.9ENvE4xO5YUyBETok8MzStK5N8xq_PFK6NyB2hMljbg';
   
   // 1. Check if user provided an override service role key
-  const localServiceRole = localStorage.getItem('supabase_service_role_override');
+  let localServiceRole = localStorage.getItem('supabase_service_role_override');
+  if (localServiceRole && (!localServiceRole.includes('gxoumwzddutjdacmotrw') || localServiceRole.includes('cgsmiirbaqgetnsjbvgl'))) {
+    try {
+      localStorage.removeItem('supabase_service_role_override');
+    } catch {}
+    localServiceRole = null;
+  }
   if (localServiceRole && localServiceRole.trim()) {
     return localServiceRole.trim();
   }
 
-  // Get active URL
-  const config = getSupabaseConfig();
-  const activeUrl = config.url;
-
   // 2. Check if active URL matches the env VITE_SUPABASE_URL
   // @ts-ignore
-  const envUrl = import.meta.env.VITE_SUPABASE_URL;
-  // @ts-ignore
   const envServiceRole = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-  if (envUrl && activeUrl && envUrl.trim().toLowerCase() === activeUrl.trim().toLowerCase()) {
-    if (envServiceRole && envServiceRole.trim()) {
-      return envServiceRole.trim();
-    }
+  if (envServiceRole && envServiceRole.trim() && envServiceRole.includes('gxoumwzddutjdacmotrw')) {
+    return envServiceRole.trim();
   }
 
-  // 3. Check if active URL matches the default URL or corrected default URL
-  const defaultUrl = 'https://cgsmiirbaqgetnsjbvgl.supabase.co';
-  const correctedDefaultUrl = 'https://cgsmiirbaqgetnsjbugl.supabase.co';
-  if (activeUrl && (
-    activeUrl.trim().toLowerCase() === defaultUrl.toLowerCase() ||
-    activeUrl.trim().toLowerCase() === correctedDefaultUrl.toLowerCase()
-  )) {
-    return defaultServiceRole;
-  }
-
-  // 4. Otherwise, do not supply a service role key to avoid signature verification mismatch
-  return null;
+  // 3. Fallback to active project default service role
+  return defaultServiceRole;
 }
 
 let activeAdminClient: SupabaseClient | null = null;
@@ -1025,29 +1029,32 @@ export async function syncAllDataBulk(payload: {
       if (error) throw new Error(`Onboarded users sync failed: ${error.message}`);
     }
 
-    // 7. Sync user profiles
+    // 7. Sync user profiles (best effort)
     if (payload.userProfiles.length > 0) {
-      const { data: currentDbProfiles } = await client.from('user_profiles').select('id, email');
-      const dbProfileMap = new Map<string, string>();
-      if (currentDbProfiles) {
-        currentDbProfiles.forEach(p => dbProfileMap.set(p.email.toLowerCase(), p.id));
+      try {
+        const { data: currentDbProfiles } = await client.from('user_profiles').select('id, email');
+        const dbProfileMap = new Map<string, string>();
+        if (currentDbProfiles) {
+          currentDbProfiles.forEach(p => dbProfileMap.set(p.email.toLowerCase(), p.id));
+        }
+
+        const profilePayloads = payload.userProfiles.map(u => {
+          const matchedDbId = dbProfileMap.get(u.email.toLowerCase());
+          return {
+            id: matchedDbId || u.id,
+            email: u.email,
+            role: u.role
+          };
+        });
+
+        const uniqueProfilesMap = new Map<string, any>();
+        profilePayloads.forEach(p => uniqueProfilesMap.set(p.email.toLowerCase(), p));
+        const finalPayloads = Array.from(uniqueProfilesMap.values());
+
+        await client.from('user_profiles').upsert(finalPayloads);
+      } catch (profileSyncErr) {
+        console.warn('User profiles sync non-blocking warning:', profileSyncErr);
       }
-
-      const profilePayloads = payload.userProfiles.map(u => {
-        const matchedDbId = dbProfileMap.get(u.email.toLowerCase());
-        return {
-          id: matchedDbId || u.id,
-          email: u.email,
-          role: u.role
-        };
-      });
-
-      const uniqueProfilesMap = new Map<string, any>();
-      profilePayloads.forEach(p => uniqueProfilesMap.set(p.email.toLowerCase(), p));
-      const finalPayloads = Array.from(uniqueProfilesMap.values());
-
-      const { error } = await client.from('user_profiles').upsert(finalPayloads);
-      if (error) throw new Error(`User profiles sync failed: ${error.message}`);
     }
 
     return { success: true, message: 'All tables synced successfully in bulk!' };

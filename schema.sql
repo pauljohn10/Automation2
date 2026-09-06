@@ -6,6 +6,7 @@
 -- ============================================================================
 
 -- A. Disable & Cascade Drop Existing Tables to ensure a clean slate setup
+DROP TABLE IF EXISTS "user_profiles" CASCADE;
 DROP TABLE IF EXISTS "onboarded_users" CASCADE;
 DROP TABLE IF EXISTS "audit_logs" CASCADE;
 DROP TABLE IF EXISTS "sales_transactions" CASCADE;
@@ -127,6 +128,17 @@ CREATE TABLE onboarded_users (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ----------------------------------------------------------------------------
+-- 7. USER PROFILES TABLE
+-- Administrative user profiles and role mapping for Supabase Auth.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'VIEWER' CHECK (role IN ('SUPER_ADMIN', 'ADMIN', 'VIEWER')),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
 
 -- ============================================================================
 -- INDEXES FOR INSTANT QUERY SPEEDS & ISOLATION
@@ -137,6 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_pumps_station ON fuel_pumps("stationId");
 CREATE INDEX IF NOT EXISTS idx_transactions_station ON sales_transactions("stationId");
 CREATE INDEX IF NOT EXISTS idx_audits_station ON audit_logs("stationId");
 CREATE INDEX IF NOT EXISTS idx_onboard_username ON onboarded_users(username);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON user_profiles(email);
 
 
 -- ============================================================================
@@ -149,6 +162,7 @@ ALTER TABLE fuel_pumps ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE onboarded_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 
 -- 1. Stations Access
 CREATE POLICY "Allow public select of stations" ON stations FOR SELECT USING (true);
@@ -185,6 +199,13 @@ CREATE POLICY "Allow public select of onboarded_users" ON onboarded_users FOR SE
 CREATE POLICY "Allow public insert of onboarded_users" ON onboarded_users FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update of onboarded_users" ON onboarded_users FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete of onboarded_users" ON onboarded_users FOR DELETE USING (true);
+
+-- 7. User Profiles Access
+CREATE POLICY "Allow public select of user_profiles" ON user_profiles FOR SELECT USING (true);
+CREATE POLICY "Allow public insert of user_profiles" ON user_profiles FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update of user_profiles" ON user_profiles FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete of user_profiles" ON user_profiles FOR DELETE USING (true);
+
 
 
 -- ============================================================================

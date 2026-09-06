@@ -322,24 +322,27 @@ export const StationsDirectory: React.FC = () => {
     }
 
     addStation(newStationObj, newTanksObj, newPumpsObj).then((dbRes) => {
+      if (!dbRes.success) {
+        console.error('[Station Onboarding] DB write failed:', dbRes.error);
+        setIsSyncing(false);
+        setSuccessNotif(`Warning: Station added to memory, but database write failed: ${dbRes.error?.message || JSON.stringify(dbRes.error)}`);
+        return;
+      }
+
       recordOnboardedUser(userPayload).then((res) => {
         setIsSyncing(false);
         if (res.success) {
-          setSuccessNotif(`Station "${newStationName}" successfully onboarded and cloud synced.`);
+          setSuccessNotif(`Station "${newStationName}" successfully onboarded and saved in Supabase!`);
           loadUsersAndConnectivity();
         } else {
-          setSuccessNotif(`Station "${newStationName}" onboarded locally (Offline Mode).`);
-          setSupabaseUsers(prev => {
-            const combined = [userPayload, ...prev];
-            return Array.from(new Map(combined.map(u => [u.id, u])).values());
-          });
+          setSuccessNotif(`Station "${newStationName}" saved in Supabase (User note: ${res.message})`);
+          loadUsersAndConnectivity();
         }
       });
     }).catch((err) => {
-      recordOnboardedUser(userPayload).then(() => {
-        setIsSyncing(false);
-        setSuccessNotif(`Station "${newStationName}" onboarded locally (Error: ${err.message || err})`);
-      });
+      setIsSyncing(false);
+      console.error('[Station Onboarding] Fatal error:', err);
+      setSuccessNotif(`Station onboarding failed: ${err.message || err}`);
     });
 
     // Reset Form Fields
@@ -1794,12 +1797,12 @@ export const StationsDirectory: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    setInputUrl('http://localhost:54321');
-                    setInputKey('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRlbXAiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTU2MTM3MTE0MSwiZXhwIjoxOTA2OTQ3MTQxfQ.standard-anon-key');
+                    setInputUrl('https://gxoumwzddutjdacmotrw.supabase.co');
+                    setInputKey('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4b3Vtd3pkZHV0amRhY21vdHJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2ODE5MjMsImV4cCI6MjEwNDI1NzkyM30.VB7v8QxLvzkJR4Vyaup6w_XcDwe-AndujBVotHikOWo');
                   }}
                   className="bg-indigo-50 hover:bg-indigo-100 text-[#6c5dd3] border border-indigo-200 px-2 py-0.5 rounded text-[9px] font-bold transition-all"
                 >
-                  Localhost (http://localhost:54321)
+                  Cloud Database (gxoumwzddutjdacmotrw)
                 </button>
               </div>
 
